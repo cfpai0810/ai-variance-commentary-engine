@@ -4,19 +4,29 @@
 # =============================================================================
 
 import pandas as pd
+import anthropic
 import os
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from config import (
+    ANTHROPIC_API_KEY,
+    MODEL,
+    MAX_TOKENS,
     DATA_DIR,
     SAMPLE_DATA,
     DEFAULT_PERIOD,
     DEFAULT_ENTITY,
     LARGE_VARIANCE_THRESHOLD,
 )
+
+# ── Initialise the Claude client once at module level ─────────────────────────
+# Creating the client here means it is reused for every call in the session.
+# Never recreate the client inside a function — it wastes time and memory.
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ── Required columns — any CSV missing these is rejected immediately ───────────
 REQUIRED_COLUMNS = {'date', 'account', 'department', 'actual', 'budget', 'prior_year'}
@@ -446,6 +456,114 @@ in the exact output format specified."""
     return system_prompt, user_prompt
 
 # =============================================================================
+# STEP 5: Call the Claude API
+# =============================================================================
+def call_claude(system_prompt, user_prompt):
+    """
+    Send the system and user prompts to Claude and return the response.
+
+    Finance context: This is the equivalent of handing the formatted brief
+    to an analyst and receiving the commentary back. We capture everything
+    needed for the audit log: tokens, stop reason, and request ID.
+
+    Error handling:
+    - AuthenticationError: API key is wrong or missing — fix .env
+    - RateLimitError: too many requests — wait and retry manually
+    - APIStatusError 5xx: Anthropic server error — SDK retries 2x automatically
+    - max_tokens stop_reason: response was truncated — flag it, do not use
+
+    Args:
+        system_prompt: the fixed contract prompt from build_prompt()
+        user_prompt:   the variable data prompt from build_prompt()
+
+    Returns:
+        (response_text, input_tokens, output_tokens, stop_reason)
+
+    Raises:
+        RuntimeError with a clear human-readable message on any API failure
+    """
+    print(f"\n[..] Calling Claude API ({MODEL})...")
+
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+
+    except anthropic.AuthenticationError:
+        # Wrong or missing API key — most common setup error
+        raise RuntimeError(
+            "Authentication failed. Check that your ANTHROPIC_API_KEY "
+            "is set correctly in your .env file and starts with 'sk-ant-'."
+        )
+
+    except anthropic.RateLimitError:
+        # Too many requests — wait before retrying manually
+        raise RuntimeError(
+            "Rate limit reached. Wait 60 seconds then run the script again. "
+            "If this happens repeatedly, check your Anthropic usage dashboard."
+        )
+
+    except anthropic.APIStatusError as e:
+        # Server-side error — SDK already retried 2x automatically
+        raise RuntimeError(
+            f"Anthropic API error after retries: {e.status_code} — {e.message}\n"
+            f"Request ID: {e.request_id}\n"
+            f"If this persists, report the Request ID to Anthropic support."
+        )
+
+    except anthropic.APIConnectionError:
+        # Network issue — no internet connection or DNS failure
+        raise RuntimeError(
+            "Could not connect to Anthropic API. "
+            "Check your internet connection and try again."
+        )
+
+    # ── Extract the response text ─────────────────────────────────────────────
+    # response.content is a list — guard against empty list before accessing [0]
+    if not response.content:
+        raise RuntimeError(
+            "Claude returned an empty response — no content in the message. "
+            "This is unexpected. Check your prompt and try again."
+        )
+
+    response_text = response.content[0].text
+    input_tokens  = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
+    stop_reason   = response.stop_reason
+
+    # ── Check stop reason — warn if response was truncated ───────────────────
+    # stop_reason == 'end_turn'   → Claude finished naturally — good
+    # stop_reason == 'max_tokens' → Claude was cut off — commentary is incomplete
+    if stop_reason == "max_tokens":
+        print(
+            f"\n[WARN] Response was truncated — Claude hit the max_tokens limit "
+            f"({MAX_TOKENS} tokens).\n"
+            f"       The commentary may be incomplete. "
+            f"Consider increasing MAX_TOKENS in config.py."
+        )
+
+    # ── Summary print ─────────────────────────────────────────────────────────
+    approx_cost = (input_tokens * 0.000003) + (output_tokens * 0.000015)
+
+    print(f"[OK] Claude responded")
+    print(f"     Stop reason:   {stop_reason}")
+    print(f"     Input tokens:  {input_tokens:,}")
+    print(f"     Output tokens: {output_tokens:,}")
+    print(f"     Approx cost:   €{approx_cost:.4f}")
+    print(f"\n{'='*60}")
+    print(f"VARIANCE COMMENTARY — {DEFAULT_PERIOD}")
+    print(f"{'='*60}")
+    print(response_text)
+    print(f"{'='*60}")
+
+    return response_text, input_tokens, output_tokens, stop_reason
+
+# =============================================================================
 # MAIN — grows one step at a time
 # =============================================================================
 if __name__ == '__main__':
@@ -462,4 +580,9 @@ if __name__ == '__main__':
     # Step 4: Build prompts
     system_prompt, user_prompt = build_prompt(
         df, flags, DEFAULT_PERIOD, DEFAULT_ENTITY
+    )
+
+    # Step 5: Call Claude
+    commentary, tok_in, tok_out, stop_reason = call_claude(
+        system_prompt, user_prompt
     )
