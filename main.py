@@ -1,5 +1,7 @@
+# =============================================================================
 # main.py — Project 1: AI Variance Commentary Engine
 # Pass 1: flat script, console output, understand every line
+# =============================================================================
 
 import pandas as pd
 import os
@@ -8,13 +10,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Constants ──────────────────────────────────────────────────────────────────
-from config import DATA_DIR, SAMPLE_DATA
+from config import (
+    DATA_DIR,
+    SAMPLE_DATA,
+    DEFAULT_PERIOD,
+    DEFAULT_ENTITY,
+    LARGE_VARIANCE_THRESHOLD,
+)
 
+# ── Required columns — any CSV missing these is rejected immediately ───────────
 REQUIRED_COLUMNS = {'date', 'account', 'department', 'actual', 'budget', 'prior_year'}
 
 
-# ── STEP 1: Load the P&L data ──────────────────────────────────────────────────
+# =============================================================================
+# STEP 1: Load the P&L data
+# =============================================================================
 def load_pnl(filepath):
     """
     Load a P&L CSV file and return a clean, typed DataFrame.
@@ -32,7 +42,7 @@ def load_pnl(filepath):
 
     Raises:
         FileNotFoundError: if the file does not exist
-        ValueError: if required columns are missing
+        ValueError: if required columns are missing or file is empty
     """
     filepath = Path(filepath)
 
@@ -69,7 +79,6 @@ def load_pnl(filepath):
             df[col] = df[col].str.strip()
 
     # 4. Validate that all required columns are present
-    #    Do this AFTER loading so we can give a specific error message
     actual_columns  = set(df.columns)
     missing_columns = REQUIRED_COLUMNS - actual_columns
 
@@ -95,9 +104,86 @@ def load_pnl(filepath):
     return df
 
 
-# ── MAIN (temporary test block) ────────────────────────────────────────────────
+# =============================================================================
+# STEP 2: Validate data and flag edge cases
+# =============================================================================
+def validate_and_flag(df):
+    """
+    Scan every row for edge cases and return a list of flags.
+
+    Finance context: Before sending data to Claude, we need to know
+    which rows have problems. We never drop or fix the data — we flag it.
+    The flag travels forward to the prompt so Claude knows to handle
+    those rows differently in the commentary.
+
+    Four edge cases we check for:
+    1. Missing actual  — blank cell in the actual column
+    2. Missing budget  — blank cell in the budget column
+    3. Zero budget     — division by zero would crash the next step
+    4. Large variance  — >50% deviation needs stronger language
+
+    Args:
+        df: DataFrame returned by load_pnl()
+
+    Returns:
+        (df, flags) — same DataFrame unchanged + list of flag strings
+    """
+    flags = []
+
+    for _, row in df.iterrows():
+        dept   = row['department']
+        actual = row['actual']
+        budget = row['budget']
+
+        # 1. Missing actual — blank cell came through as NaN
+        if pd.isna(actual):
+            flags.append(f"MISSING_ACTUAL: {dept}")
+            continue  # skip remaining checks — no actual to work with
+
+        # 2. Missing budget — rare but possible
+        if pd.isna(budget):
+            flags.append(f"MISSING_BUDGET: {dept}")
+            continue  # skip remaining checks — no budget to work with
+
+        # 3. Zero budget — cannot calculate variance %
+        #    Different from missing: zero is a real value, not blank
+        if budget == 0:
+            flags.append(f"ZERO_BUDGET: {dept}")
+            continue  # skip variance check — division by zero
+
+        # 4. Zero actual — department spent nothing against a real budget
+        #    Different from LARGE_VARIANCE — needs its own flag and language
+        if actual == 0:
+            flags.append(f"ZERO_ACTUAL: {dept} (budget was {budget:,.0f})")
+            continue  # skip variance check — not a meaningful variance
+
+        # 5. Large variance — deviation beyond threshold in either direction
+        #    abs() catches both overspend and underspend
+        variance_pct = (actual - budget) / budget
+        if abs(variance_pct) > LARGE_VARIANCE_THRESHOLD:
+            direction = "over budget" if variance_pct < 0 else "above budget"
+            flags.append(
+                f"LARGE_VARIANCE: {dept} "
+                f"({variance_pct:+.1%} {direction})"
+            )
+
+    print(f"\n[OK] Validation complete")
+    print(f"     Rows checked: {len(df)}")
+    print(f"     Flags raised: {len(flags)}")
+    if flags:
+        for flag in flags:
+            print(f"     --> {flag}")
+
+    return df, flags
+
+
+# =============================================================================
+# MAIN — grows one step at a time
+# =============================================================================
 if __name__ == '__main__':
+
+    # Step 1: Load
     df = load_pnl(SAMPLE_DATA)
-    print("\nFirst 3 rows:")
-    print(df.head(3).to_string())
-    print(f"\nData types:\n{df.dtypes}")
+
+    # Step 2: Validate
+    df, flags = validate_and_flag(df)
