@@ -1,0 +1,17 @@
+# Secret keys — NEVER commit this
+.env
+
+# Generated output files
+output/
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+
+# Windows OS files
+Thumbs.db
+desktop.ini

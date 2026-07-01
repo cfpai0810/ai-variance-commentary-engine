@@ -1,0 +1,8 @@
+date,account,department,actual,budget,prior_year
+2026-03-31,Revenue,Sales,1250000,1100000,1050000
+2026-03-31,COGS,Operations,480000,420000,390000
+2026-03-31,Marketing Spend,Marketing,95000,80000,72000
+2026-03-31,Headcount Cost,HR,310000,320000,290000
+2026-03-31,IT Infrastructure,Technology,0,45000,0
+2026-03-31,Legal & Compliance,Admin,,25000,22000
+2026-03-31,R&D Expense,Product,890000,400000,180000
