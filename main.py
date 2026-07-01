@@ -176,6 +176,113 @@ def validate_and_flag(df):
 
     return df, flags
 
+# =============================================================================
+# STEP 3: Calculate variances — Python does ALL the arithmetic
+# =============================================================================
+def calculate_variances(df, flags):
+    """
+    Add variance columns to the DataFrame for every row.
+
+    CRITICAL DESIGN RULE: Python calculates all numbers.
+    Claude only interprets and narrates. The LLM never does arithmetic.
+
+    Finance context: This mirrors what you do in Excel before writing
+    commentary — you calculate the variance column first, then write
+    the narrative. Here Python does the Excel work. Claude does the
+    narrative work. They never swap roles.
+
+    Three calculations per row:
+    - variance_abs:      actual - budget              (absolute £/€ movement)
+    - variance_pct:      (actual - budget) / budget   (percentage vs budget)
+    - prior_year_pct:    (actual - prior_year) / prior_year  (YoY movement)
+
+    Flagged rows (MISSING_ACTUAL, MISSING_BUDGET, ZERO_BUDGET, ZERO_ACTUAL)
+    receive None for all variance columns — never a wrong number.
+
+    Args:
+        df:    DataFrame returned by validate_and_flag()
+        flags: list of flag strings from validate_and_flag()
+
+    Returns:
+        DataFrame with three new columns added:
+        variance_abs, variance_pct, prior_year_pct
+    """
+
+    # Work on a copy — never mutate the DataFrame passed in
+    df = df.copy()
+
+    # Build a set of flagged departments for fast lookup
+    # e.g. {'Admin', 'Technology'} — used to skip bad rows below
+    flagged_depts = set()
+    for flag in flags:
+        # Each flag is like "MISSING_ACTUAL: Admin" or "ZERO_BUDGET: Technology"
+        # Split on ': ' and take the department name after the colon
+        if ': ' in flag:
+            dept_part = flag.split(': ')[1]
+            # Strip trailing content like "(budget was 45,000)" if present
+            dept_name = dept_part.split(' (')[0].strip()
+            flagged_depts.add(dept_name)
+
+    # Initialise all three variance columns with None
+    # None means "not calculated" — distinct from zero which means "no variance"
+    df['variance_abs']   = None
+    df['variance_pct']   = None
+    df['prior_year_pct'] = None
+
+    # Calculate row by row
+    # Using iterrows() for clarity — readable and explicit for a learning context
+    for idx, row in df.iterrows():
+        dept       = row['department']
+        actual     = row['actual']
+        budget     = row['budget']
+        prior_year = row['prior_year']
+
+        # Skip flagged rows — they have missing or invalid data
+        # Their variance columns stay as None
+        if dept in flagged_depts:
+            continue
+
+        # ── Absolute variance ─────────────────────────────────────────────────
+        # Simple subtraction — always safe once we know actual and budget exist
+        variance_abs = actual - budget
+        df.at[idx, 'variance_abs'] = variance_abs
+
+        # ── Percentage variance vs budget ─────────────────────────────────────
+        # Budget guard: already flagged in Step 2, but double-check here
+        # because defence-in-depth matters in a finance pipeline
+        if pd.notna(budget) and budget != 0:
+            df.at[idx, 'variance_pct'] = (actual - budget) / budget
+        # else: stays None — no percentage calculated
+
+        # ── Prior year variance ───────────────────────────────────────────────
+        # Prior year can be zero or missing — check both
+        # Step 2 does NOT check prior_year, so we must guard here
+        if pd.notna(prior_year) and prior_year != 0:
+            df.at[idx, 'prior_year_pct'] = (actual - prior_year) / prior_year
+        # else: stays None — no prior year comparison available
+
+    # ── Summary print ─────────────────────────────────────────────────────────
+    calculated = df['variance_abs'].notna().sum()
+    skipped    = df['variance_abs'].isna().sum()
+
+    print(f"\n[OK] Variances calculated")
+    print(f"     Rows calculated: {calculated}")
+    print(f"     Rows skipped (flagged): {skipped}")
+    print(f"\n     {'Department':<25} {'Actual':>12} {'Budget':>12} "
+          f"{'Var £/€':>12} {'Var %':>8} {'vs PY':>8}")
+    print(f"     {'-'*25} {'-'*12} {'-'*12} {'-'*12} {'-'*8} {'-'*8}")
+
+    for _, row in df.iterrows():
+        actual_str  = f"{row['actual']:>12,.0f}"  if pd.notna(row['actual'])       else f"{'MISSING':>12}"
+        budget_str  = f"{row['budget']:>12,.0f}"  if pd.notna(row['budget'])       else f"{'MISSING':>12}"
+        var_abs_str = f"{row['variance_abs']:>+12,.0f}" if pd.notna(row['variance_abs']) else f"{'N/A':>12}"
+        var_pct_str = f"{row['variance_pct']:>+8.1%}"  if pd.notna(row['variance_pct']) else f"{'N/A':>8}"
+        py_str      = f"{row['prior_year_pct']:>+8.1%}" if pd.notna(row['prior_year_pct']) else f"{'N/A':>8}"
+
+        print(f"     {row['department']:<25} {actual_str} {budget_str} "
+              f"{var_abs_str} {var_pct_str} {py_str}")
+
+    return df
 
 # =============================================================================
 # MAIN — grows one step at a time
@@ -187,3 +294,6 @@ if __name__ == '__main__':
 
     # Step 2: Validate
     df, flags = validate_and_flag(df)
+
+    # Step 3: Calculate variances
+    df = calculate_variances(df, flags)
