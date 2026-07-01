@@ -285,6 +285,167 @@ def calculate_variances(df, flags):
     return df
 
 # =============================================================================
+# STEP 4: Build the system prompt and user prompt
+# =============================================================================
+def build_prompt(df, flags, period, entity):
+    """
+    Build the system prompt and user prompt for the Claude API call.
+
+    Finance context: This is where you hand the brief to Claude.
+    The system prompt is the standing contract — written once, reused every run.
+    The user prompt is the variable layer — changes with each period's data.
+
+    Anthropic best practice: data goes inside XML tags, query goes at the end.
+    This improves response quality by up to 30% vs unstructured prompts.
+
+    Args:
+        df:     DataFrame with variance columns from calculate_variances()
+        flags:  list of flag strings from validate_and_flag()
+        period: reporting period string e.g. 'March 2026'
+        entity: entity name string e.g. 'Valencia Operations'
+
+    Returns:
+        (system_prompt string, user_prompt string)
+    """
+
+    # ── Guard: use defaults if period or entity are empty ─────────────────────
+    if not period or not period.strip():
+        period = DEFAULT_PERIOD
+    if not entity or not entity.strip():
+        entity = DEFAULT_ENTITY
+
+    # =========================================================================
+    # SYSTEM PROMPT — fixed contract, never changes between runs
+    # Five mandatory sections: role, success criteria, constraints,
+    # uncertainty handling, output format
+    # =========================================================================
+    system_prompt = """You are a senior FP&A analyst at a European company, \
+preparing management accounts commentary for the CFO and Board.
+
+<success_criteria>
+- Identify the specific department and account driving each variance
+- Use direction-aware language: favourable variances are framed as \
+opportunities or achievements, unfavourable variances include a root cause \
+and a recommended corrective action
+- Commentary is concise, professional, and CFO-ready — no filler phrases, \
+no corporate jargon
+- Prior year comparisons are included where data is available
+- The tone is analytical and confident, not hedged or vague
+</success_criteria>
+
+<constraints>
+- NEVER invent, estimate, or extrapolate any number not present in the data
+- NEVER round figures differently from how they are provided
+- If a row is flagged, acknowledge the flag explicitly — do not write \
+commentary as if the data is complete
+- All amounts are in EUR unless stated otherwise
+- Do not use phrases like "it is worth noting" or "it should be highlighted" \
+— state the point directly
+</constraints>
+
+<uncertainty_handling>
+- If a data field is missing or flagged, write: \
+[FLAG: reason] — e.g. [FLAG: Missing actual for Legal & Compliance]
+- Do not attempt to estimate or fill a missing value
+- If a variance is very large (>50%), note that it requires urgent CFO review
+</uncertainty_handling>
+
+<output_format>
+Produce output in exactly this structure — no deviation:
+
+EXECUTIVE SUMMARY
+[3 sentences maximum. Overall performance vs budget. \
+Biggest positive driver. Biggest negative driver or risk.]
+
+LINE ITEM COMMENTARY
+[One paragraph per department. Format each paragraph as:]
+[Department — Account]: [2-3 sentences. Variance amount and %. \
+Root cause or explanation. Prior year comparison if available. \
+Recommended action if unfavourable.]
+
+DATA FLAGS
+[List each flag on its own line. If no flags, write: No flags raised.]
+</output_format>"""
+
+    # =========================================================================
+    # USER PROMPT — variable layer, rebuilt every run
+    # Structure: context → data (XML tags) → flags → query
+    # Anthropic docs: put data before the query for best results
+    # =========================================================================
+
+    # ── Build the formatted data rows for injection ───────────────────────────
+    data_rows = []
+    for _, row in df.iterrows():
+        dept = row['department']
+        acct = row['account']
+
+        # Format actual — handle missing
+        if pd.isna(row['actual']):
+            actual_str = "MISSING"
+        else:
+            actual_str = f"€{row['actual']:,.0f}"
+
+        # Format budget — always present (validated in Step 1)
+        budget_str = f"€{row['budget']:,.0f}"
+
+        # Format variance columns — None means flagged/skipped
+        if pd.notna(row['variance_abs']) and pd.notna(row['variance_pct']):
+            var_str = (
+                f"€{row['variance_abs']:+,.0f} "
+                f"({row['variance_pct']:+.1%})"
+            )
+        else:
+            var_str = "N/A — see flags"
+
+        # Format prior year comparison
+        if pd.notna(row['prior_year_pct']):
+            py_str = f"{row['prior_year_pct']:+.1%} vs prior year"
+        else:
+            py_str = "N/A"
+
+        data_rows.append(
+            f"  {dept} | {acct} | "
+            f"Actual: {actual_str} | Budget: {budget_str} | "
+            f"Variance: {var_str} | Prior Year: {py_str}"
+        )
+
+    data_block = "\n".join(data_rows)
+
+    # ── Build the flags block ─────────────────────────────────────────────────
+    if flags:
+        flags_block = "\n".join(f"  - {flag}" for flag in flags)
+    else:
+        flags_block = "  No flags raised."
+
+    # ── Assemble the full user prompt ─────────────────────────────────────────
+    user_prompt = f"""REPORTING CONTEXT
+Period:  {period}
+Entity:  {entity}
+Currency: EUR
+
+<financial_data>
+{data_block}
+</financial_data>
+
+<data_flags>
+{flags_block}
+</data_flags>
+
+Using the financial data and flags above, produce the variance commentary \
+in the exact output format specified."""
+
+    # ── Preview print — lets you read both prompts before the API call ────────
+    print("\n[OK] Prompts built")
+    print(f"     Period: {period} | Entity: {entity}")
+    print(f"     Data rows injected: {len(data_rows)}")
+    print(f"     Flags in prompt: {len(flags)}")
+    print(f"\n     --- USER PROMPT PREVIEW ---")
+    print(user_prompt)
+    print(f"     --- END PREVIEW ---")
+
+    return system_prompt, user_prompt
+
+# =============================================================================
 # MAIN — grows one step at a time
 # =============================================================================
 if __name__ == '__main__':
@@ -297,3 +458,8 @@ if __name__ == '__main__':
 
     # Step 3: Calculate variances
     df = calculate_variances(df, flags)
+
+    # Step 4: Build prompts
+    system_prompt, user_prompt = build_prompt(
+        df, flags, DEFAULT_PERIOD, DEFAULT_ENTITY
+    )
