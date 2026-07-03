@@ -1,17 +1,23 @@
-# Secret keys — NEVER commit this
+# Secret keys - NEVER commit this
 .env
 
-# Generated output files
-output/
+# Generated output files - not source code
+output/audit_log.jsonl
+output/*.txt
+output/*.pdf
 
-# Python compiled files
+# Python bytecode - auto-generated, never commit
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# Virtual environment
+# Virtual environment - too large, recreated from requirements.txt
 venv/
 
 # Windows OS files
 Thumbs.db
 desktop.ini
+
+# VS Code settings
+.vscode/
