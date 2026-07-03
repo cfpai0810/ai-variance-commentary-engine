@@ -1,0 +1,163 @@
+=============================================================
+SESSION DEBRIEF LOG — Project 1: AI Variance Commentary Engine
+=============================================================
+
+SESSION 1 — Pass 1 Complete
+Date: 2026-07-01
+Duration: approximately 3 hours
+Phase completed: Part 0 environment setup + Phase 4a Pass 1 flat script
+
+=============================================================
+Q1. WHAT DID WE BUILD TODAY?
+=============================================================
+A complete end-to-end Python pipeline that loads a P&L CSV
+file, validates every row for data problems, calculates all
+variances in Python, builds a structured prompt for Claude,
+calls the Claude API, and writes the output to a text file
+with a full audit log.
+
+The pipeline handled all seven test rows correctly including
+three edge cases: zero actual for Technology, missing actual
+for Admin, and a 122.5% large variance for Product. The whole
+process runs in under 15 seconds and costs approximately two
+cents per run.
+
+=============================================================
+Q2. WHAT CONCEPT DID I UNDERSTAND TODAY THAT I DIDN'T BEFORE?
+=============================================================
+The most important thing I understood is why Python does all
+the arithmetic and Claude only narrates. If Claude calculated
+the numbers, the output would not be auditable because there
+would be no way to trace where a number came from. Because
+Python does the maths and Claude only reads the formatted
+results, every figure in the commentary can be traced back
+to a specific row in the input CSV.
+
+I also understood why flags are created once in Step 2 and
+passed forward to every subsequent step rather than being
+rechecked in each function. Each function does one job and
+trusts the output of the previous one. This is what makes
+the pipeline clean and easy to debug.
+
+=============================================================
+Q3. WHAT CONFUSED ME OR TOOK LONGER THAN EXPECTED?
+=============================================================
+The Git and GitHub setup took much longer than expected. The
+authentication issues came one after another: password versus
+Personal Access Token, wrong username cpai0810 instead of
+cfpai0810, and the repository not existing before the push
+command. Setting this up before writing any code would have
+saved a lot of time.
+
+The difference between None and NaN in pandas was not
+immediately obvious. A blank cell in a float column becomes
+NaN automatically when pandas reads the file, but we
+deliberately store None in the variance columns to mean the
+calculation was not performed at all. Zero would mean the
+variance was calculated and the answer was zero, which is
+completely different.
+
+The virtual environment activation command in PowerShell is
+different from what most guides show and this caused confusion
+early on. The correct command is .\venv\Scripts\Activate.ps1
+not the version shown in Mac guides.
+
+I also spent time reading through the codes line by line at
+each step which slowed me down. I realise now that the better
+approach is to first understand the purpose of each step and
+what it does to the data before diving into the syntax. Once
+I know what a function is supposed to do and why, reading
+the code becomes much faster because I already know what I
+am looking for. I will apply this in Pass 2.
+
+=============================================================
+Q4. WHAT WOULD I CHANGE IF I REBUILT THIS FROM SCRATCH?
+=============================================================
+I would set up Git and GitHub authentication before writing
+any code so it does not interrupt the build flow later.
+
+I would create the .env file directly in VS Code using
+right click and New File rather than through the terminal
+because Windows file extension handling caused unnecessary
+confusion when using the terminal approach.
+
+I would test that the API key loads correctly by running
+python config.py before building any functions. If the key
+is not loading properly, every step after that fails with
+a confusing error that points to the wrong place.
+
+I would also add the full import list to main.py at the
+very start rather than adding imports one by one as each
+function needs them. Missing imports only show up as errors
+at runtime which interrupts the build flow.
+
+=============================================================
+Q5. WHAT IS THE ONE THING I WANT TO REVISIT BEFORE PASS 2?
+=============================================================
+I want to be clear on the four layer architecture before we
+start moving any code. The structure is:
+
+data_loader.py holds load_pnl() and validate_and_flag()
+because both functions deal with reading and checking the
+raw data. They do not know anything about prompts or Claude.
+
+ai_engine.py holds build_prompt() and call_claude() because
+both functions deal with the AI layer. build_prompt() prepares
+the input for Claude and call_claude() sends it and receives
+the response. They do not know anything about files or data
+loading.
+
+output_writer.py holds write_output() because it deals with
+writing files and the audit log. It does not know anything
+about how the commentary was generated.
+
+main.py becomes the orchestrator. It calls each layer in
+order but contains no logic of its own. It just connects
+the layers together.
+
+Beyond the structure I also want to carry forward the best
+practices we followed in Pass 1:
+
+Python calculates everything and Claude only narrates. This
+is the most important rule in the entire project and it
+applies to every project in the portfolio.
+
+Every function does exactly one job. load_pnl() only loads
+data. validate_and_flag() only checks for problems. This
+makes each function easy to test, easy to debug, and easy
+to explain.
+
+Flags before failures. When data is missing or invalid the
+system raises a flag and continues rather than crashing or
+silently using a wrong value. This is what makes the output
+trustworthy.
+
+Every output is traceable. The SHA256 hash of the input file
+and the JSONL audit log mean that any commentary output can
+be traced back to the exact data that produced it. A CFO or
+auditor can verify the chain.
+
+Guard every denominator. Before any division we check that
+the number we are dividing by is not zero and not missing.
+This applies to budget, prior year, and any other divisor
+that appears in future projects.
+
+Import everything at the top. All imports go at the top of
+the file so it is immediately clear what each module depends
+on. Missing imports discovered at runtime are avoidable.
+
+The purpose of each step comes before the syntax. Understanding
+what a function is supposed to do and what happens to the data
+when it runs is more important than memorising the code.
+Syntax can be looked up. Logic and purpose cannot.
+
+=============================================================
+NEXT SESSION — Pass 2
+=============================================================
+Starting point: read Q5 above before writing any code.
+First question to answer before touching main.py: why does
+build_prompt() belong in ai_engine.py rather than in
+data_loader.py or main.py?
+Goal: refactor the flat script into four layer architecture
+and add PDF output using reportlab.
+=============================================================
