@@ -161,3 +161,17 @@ data_loader.py or main.py?
 Goal: refactor the flat script into four layer architecture
 and add PDF output using reportlab.
 =============================================================
+
+=============================================================
+Session 3 — Repository restructured
+Date: 2026-07-03
+=============================================================
+What we did: moved layer files into src/ package, created README,
+docs folder, and clean folder structure on GitHub.
+
+Q5 for next session: Step 5 adds write_pdf() to step3_output_writer.py.
+Before starting, think about this: the commentary Claude returns has
+three sections — EXECUTIVE SUMMARY, LINE ITEM COMMENTARY, DATA FLAGS.
+How should each section look different in the PDF?
+=============================================================
+
