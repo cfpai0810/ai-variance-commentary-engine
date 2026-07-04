@@ -175,3 +175,98 @@ three sections — EXECUTIVE SUMMARY, LINE ITEM COMMENTARY, DATA FLAGS.
 How should each section look different in the PDF?
 =============================================================
 
+=============================================================
+SESSION 4 — PDF Output Build
+Date: 2026-07-03
+Phase completed: Step 5 — PDF output added to step3_output_writer.py
+
+Q1. WHAT DID WE BUILD TODAY?
+A professional A4 PDF variance commentary report using reportlab.
+The PDF has five sections: dark blue cover block, executive summary,
+numbers-first variance summary table with colour-coded status indicators,
+line item commentary with inline flag boxes, and a compact data flags
+action table.
+
+Q2. WHAT CONCEPT DID I UNDERSTAND TODAY THAT I DIDN'T BEFORE?
+The difference between ParagraphStyle.backColor and Table+TableStyle
+for background colours in reportlab. ParagraphStyle.backColor only
+highlights behind individual characters — it does not fill the full
+column width. Table with TableStyle BACKGROUND fills the entire cell.
+This was the root cause of the broken PDF in the first version.
+
+Q3. WHAT CONFUSED ME OR TOOK LONGER THAN EXPECTED?
+Several iterations were needed to get the PDF looking professional.
+The key issues were: white text invisible on white background (missing
+table background), [FLAG: leaking into line item labels (colon-split
+bug), and MISSING appearing in numeric cells (replaced with em dash).
+Each required a different fix.
+
+Q4. WHAT WOULD I CHANGE IF I REBUILT THIS FROM SCRATCH?
+Design the PDF layout on paper first with a mockup before writing any
+reportlab code. The mockup step saved significant time once introduced
+and should have been the starting point.
+
+Q5. WHAT IS THE ONE THING I WANT TO REVISIT BEFORE THE NEXT SESSION?
+The extract_label() function and why splitting on first colon fails
+for flagged lines. The fix is to split on the space-dash-space separator
+instead. Understanding this logic will help when building similar
+parsers in future projects.
+
+=============================================================
+SESSION 5 — Phase 5, 6, and 7 Complete
+Date: 2026-07-04
+Phase completed: Phase 5 (55 tests), Phase 6 (governance), Phase 7 (docs)
+
+Q1. WHAT DID WE BUILD TODAY?
+Three governance and documentation phases completed Project 1 fully.
+Phase 5: 55 test assertions across 6 test cases using pytest — no
+real API calls, runs in under 2 seconds.
+Phase 6: audit log enhanced with input_rows, pdf_file, and low-token
+trigger. Human review warning block added to main.py.
+Phase 7: README updated with PDF output section, test suite section,
+and updated CV bullet. Sample output refreshed.
+
+Q2. WHAT CONCEPT DID I UNDERSTAND TODAY THAT I DIDN'T BEFORE?
+How pytest fixtures work — the tmp_dirs fixture patches OUTPUT_DIR
+and AUDIT_LOG so tests write to a temp folder and never touch the
+real output directory. The patch context manager makes the swap
+automatic and reverses it after each test. This is how professional
+Python projects isolate tests from production state.
+
+Q3. WHAT CONFUSED ME OR TOOK LONGER THAN EXPECTED?
+Understanding that write_pdf() needed to update the existing audit
+record rather than create a new one. The solution — reading the last
+line of the JSONL file, updating it, and rewriting — required careful
+handling to avoid corrupting earlier records.
+
+Q4. WHAT WOULD I CHANGE IF I REBUILT THIS FROM SCRATCH?
+Design the audit log schema upfront before writing any output function.
+Adding input_rows and pdf_file later required patching three places.
+If the schema had been complete from the start, it would have been
+written once.
+
+Q5. WHAT IS THE ONE THING I WANT TO REVISIT BEFORE PROJECT 2?
+The driver-based forecast model concept. Project 2 takes actuals
+and a driver table (volume, price, FX rate), applies driver logic
+to produce a rolling forecast, and Claude narrates the assumption
+changes. Before starting, understand: what is a driver-based model
+and how does it differ from a variance model? The key difference is
+that variance analysis looks backward (actual vs budget), while
+driver-based forecasting looks forward (what will next period look
+like given current drivers).
+
+=============================================================
+PROJECT 1 COMPLETION TRACKER
+=============================================================
+[x] Pass 1 — flat script working end to end
+[x] Pass 2 — four-layer architecture in src/
+[x] PDF output — professional A4 report with 5 sections
+[x] GitHub — clean repo, README, docs, all generated files gitignored
+[x] Phase 5 — 55 assertions, 6 test cases, no API calls
+[x] Phase 6 — audit trail complete, human review warning in main.py
+[x] Phase 7 — README updated, sample output refreshed, CV bullet added
+[x] Debrief log — all sessions documented
+
+Project 1 is complete.
+Next: Project 2 — Driver-Based Rolling Forecast Pipeline
+=============================================================
