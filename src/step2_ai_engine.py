@@ -268,6 +268,14 @@ def call_claude(system_prompt, user_prompt):
             "Consider increasing MAX_TOKENS in config.py.".format(MAX_TOKENS)
         )
 
+    # Warn if output token count is suspiciously low — commentary may be incomplete
+    # A full variance commentary for 7 rows should produce at least 200 tokens
+    if output_tokens < 200 and stop_reason != "max_tokens":
+        print(
+            "[WARN] Output token count unusually low ({} tokens). "
+            "The commentary may be incomplete. Review before use.".format(output_tokens)
+        )
+
     # Print summary — always runs regardless of stop_reason
     approx_cost = (input_tokens * 0.000003) + (output_tokens * 0.000015)
 

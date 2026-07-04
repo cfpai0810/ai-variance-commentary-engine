@@ -472,7 +472,7 @@ def _flag_inline(text, severity="error"):
 # =============================================================================
 # FUNCTION 1: Write commentary text file and audit log
 # =============================================================================
-def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason):
+def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason, input_rows=0):
     """
     Write commentary to a timestamped text file and append one JSONL
     audit record per run. SHA256 hash of input file proves data lineage.
@@ -515,7 +515,13 @@ def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason):
     with open(input_file, "rb") as f:
         input_hash = "sha256:" + hashlib.sha256(f.read()).hexdigest()
 
-    requires_review = len(flags) > 0 or stop_reason == "max_tokens"
+    # Human review required when: flags raised, output truncated,
+    # or output suspiciously short (< 200 tokens — likely incomplete)
+    requires_review = (
+        len(flags) > 0
+        or stop_reason == "max_tokens"
+        or (tok_out < 200 and stop_reason != "max_tokens")
+    )
 
     audit_record = {
         "run_id":          ts_log,
@@ -523,8 +529,10 @@ def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason):
         "period":          DEFAULT_PERIOD,
         "entity":          DEFAULT_ENTITY,
         "input_file":      str(input_file),
+        "input_rows":      input_rows,
         "input_hash":      input_hash,
         "output_file":     str(output_path),
+        "pdf_file":        None,
         "model":           MODEL,
         "input_tokens":    tok_in,
         "output_tokens":   tok_out,
@@ -547,6 +555,30 @@ def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason):
 
     return output_path
 
+def update_audit_pdf(pdf_path):
+    """
+    Update the most recent audit log record with the PDF output path.
+
+    Called by write_pdf() after the PDF is successfully created.
+    Reads the last line of audit_log.jsonl, adds the pdf_file field,
+    and rewrites that line in place.
+
+    Finance context: The audit trail must record both outputs — the text
+    commentary and the PDF report — so any output can be traced to the
+    exact run that produced it.
+    """
+    if not AUDIT_LOG.exists():
+        return
+
+    lines = AUDIT_LOG.read_text(encoding="utf-8").strip().split("\n")
+    if not lines or not lines[-1].strip():
+        return
+
+    last_record           = json.loads(lines[-1])
+    last_record["pdf_file"] = str(pdf_path)
+    lines[-1]             = json.dumps(last_record)
+
+    AUDIT_LOG.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 # =============================================================================
 # FUNCTION 2: Write PDF commentary report
@@ -674,6 +706,9 @@ def write_pdf(commentary, df, flags, tok_in, tok_out):
     )
     doc.build(story)
 
+    # Update the audit log with the PDF path
+    update_audit_pdf(pdf_path)
+    
     print("[OK] PDF written")
     print("     PDF:  {}".format(pdf_path))
     print("     Size: {:.1f} KB".format(pdf_path.stat().st_size / 1024))
