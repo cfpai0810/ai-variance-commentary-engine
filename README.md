@@ -1,77 +1,76 @@
 # AI Variance Commentary Engine
 
-**AI-powered FP&A variance commentary — from raw P&L data to CFO-ready PDF report in under 15 seconds.**
-
-Built as Project 1 of a 9-project AI Finance portfolio demonstrating Finance Engineer capabilities for Head of FP&A and Finance Transformation roles.
+A practical demonstration of how AI can be leveraged to transform
+traditional finance workflows — taking a task that typically takes
+4–6 hours and completing it in under 15 seconds, with higher
+consistency and a built-in audit trail.
 
 ---
 
 ## What it does
 
-Takes a standard P&L CSV export (actuals vs budget vs prior year), validates every row for data quality issues, calculates all variances in Python, and uses the Claude API to generate structured CFO-grade management accounts commentary. The output is both a plain-text file and a formatted A4 PDF report with an executive summary, numbers-first variance table, line-item narrative, and a data flags action table.
+Takes a standard P&L CSV export (actuals vs budget vs prior year),
+validates every row for data quality issues, calculates all variances
+in Python, and uses the Claude API to generate structured management
+accounts commentary. The output is both a plain-text file and a
+formatted A4 PDF report with five sections: executive summary,
+variance summary table, line-item narrative, data flag boxes, and
+a consolidated action table.
 
-**Time saved:** Monthly close narrative from 4–6 hours to under 15 seconds.
-**Cost per run:** Approximately EUR 0.02.
-**Audit trail:** SHA256 hash of input data, row count, and both output paths logged on every run.
+**Time per run:** Under 15 seconds.
+**API cost per run:** Approximately EUR 0.02.
+**Audit trail:** Every run logs input hash, row count, token usage,
+and both output paths to a permanent JSONL audit file.
 
 ---
 
 ## Sample output
 
-See [`docs/sample_output.txt`](docs/sample_output.txt) for a full example of the generated text commentary.
+See [`docs/sample_output.txt`](docs/sample_output.txt) for a full
+example of the generated text commentary.
 
-The pipeline also produces a formatted A4 PDF report with five sections: cover header, executive summary, variance summary table with FAV/UNF status indicators, line-item commentary with inline flag boxes, and a data flags action table.
+See [`docs/sample_report.pdf`](docs/sample_report.pdf) for a full
+example of the generated PDF report.
+
+The PDF report contains five sections:
+
+- Cover block with entity, period, model, and run metadata
+- Executive summary — 3-sentence narrative of overall performance
+- Variance summary table — all line items with actuals, budgets,
+  variances, and colour-coded status at a glance
+- Line item commentary — one paragraph per department with root
+  cause analysis and recommended action
+- Data flags action table — each flagged row with a specific
+  action required before the accounts can be signed off
 
 ---
 
 ## How to run
 
-Clone the repository and install dependencies:
+Clone and install:
 
 ```bash
 git clone https://github.com/cfpai0810/ai-variance-commentary-engine.git
 cd ai-variance-commentary-engine
-```
-
-Create and activate a virtual environment:
-
-```bash
 python -m venv venv
-```
-
-```bash
-# Windows PowerShell
-venv\Scripts\Activate.ps1
-
-# Mac / Linux
-source venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
+venv\Scripts\Activate.ps1        # Windows PowerShell
 pip install -r requirements.txt
 ```
 
-Add your Anthropic API key:
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` and add your key:
+Add your Anthropic API key to a `.env` file:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
-Run the pipeline:
+Run:
 
 ```bash
 python main.py
 ```
 
-The pipeline produces two output files in `output/`:
+The pipeline produces two files in `output/`:
+
 - `variance_commentary_YYYY-MM-DD_HH-MM-SS.txt` — plain-text commentary with run metadata header
 - `variance_commentary_YYYY-MM-DD_HH-MM-SS.pdf` — formatted A4 PDF report
 
@@ -80,69 +79,89 @@ The pipeline produces two output files in `output/`:
 ## Project structure
 
 ```
-main.py                       Run this to execute the full pipeline
-config.py                     Layer 1: all configuration and file paths
-requirements.txt              All dependencies with pinned versions
+main.py                       Orchestrator — runs the full pipeline
+config.py                     All configuration and file paths
+requirements.txt              Pinned dependencies
 
 src/
-  step1_data_loader.py        Layer 2: load CSV, validate rows, calculate variances
-  step2_ai_engine.py          Layer 3: build prompts, call Claude API
-  step3_output_writer.py      Layer 4: write text file, PDF report, and audit log
+  step1_data_loader.py        Load CSV, validate rows, calculate variances
+  step2_ai_engine.py          Build prompts, call Claude API
+  step3_output_writer.py      Write text file, PDF report, and audit log
 
 data/
-  sample_pnl.csv              Synthetic test data covering all edge cases
+  sample_pnl.csv              Synthetic test data with all edge cases
 
 docs/
   sample_output.txt           Example text commentary output
+  sample_report.pdf           Example PDF report output
 
 output/                       Generated files (gitignored)
 tests/
-  test_pipeline.py            55 assertions across 6 test cases — no API calls needed
+  test_pipeline.py            55 assertions, 6 test cases, no API calls
 ```
 
 ---
 
 ## Architecture
 
-Critical design rule: Python calculates all numbers. Claude only interprets and narrates. Every figure in the output can be traced back to a specific Python calculation — making the output auditable and CFO-ready.
+**Core design rule:** Python calculates all numbers. Claude only
+interprets and narrates. This makes every figure in the output
+traceable to a specific calculation — not to the language model.
 
 ```
 P&L CSV input
       |
       v
-step1_data_loader.py    Load CSV + validate schema + calculate variances (Python)
+step1_data_loader.py
+  Load CSV with explicit dtypes
+  Validate schema and row count
+  Flag edge cases before calculation
+  Calculate variances in Python
       |
       v
-step2_ai_engine.py      Build structured prompt + call Claude API
+step2_ai_engine.py
+  Build structured system prompt + data prompt
+  Call Claude API with XML-tagged financial data
+  Capture token counts and stop reason
       |
       v
-step3_output_writer.py  Write text file + formatted PDF + append audit log
+step3_output_writer.py
+  Write plain-text commentary with header
+  Write formatted A4 PDF report
+  Append one record to audit_log.jsonl
       |
       v
-output/variance_commentary_YYYY-MM-DD.txt   (plain text)
-output/variance_commentary_YYYY-MM-DD.pdf   (formatted A4 PDF)
-output/audit_log.jsonl                      (append-only audit trail)
+output/variance_commentary_YYYY-MM-DD.txt
+output/variance_commentary_YYYY-MM-DD.pdf
+output/audit_log.jsonl
 ```
 
-Edge cases handled automatically before any data reaches Claude:
+**Edge case handling — before any data reaches Claude:**
 
-| Flag | Condition | Behaviour |
-|------|-----------|-----------|
-| MISSING_ACTUAL | Blank actual cell | Flagged, skipped, never invented |
-| MISSING_BUDGET | Blank budget cell | Flagged, skipped |
-| ZERO_BUDGET | Budget = 0 | Flagged, percentage variance shows — |
-| ZERO_ACTUAL | Actual = 0 | Flagged separately, prevents false large-variance alert |
-| LARGE_VARIANCE | Deviation > 50% | Flagged, urgent CFO review language triggered |
+| Flag | Condition | What the system does |
+|------|-----------|----------------------|
+| MISSING_ACTUAL | Blank actual cell | Flags the row, skips calculation, never invents a value |
+| MISSING_BUDGET | Blank budget cell | Flags the row, skips calculation |
+| ZERO_BUDGET | Budget = 0 | Flags the row, skips percentage calculation |
+| ZERO_ACTUAL | Actual = 0 | Flagged separately — prevents a false large-variance alert |
+| LARGE_VARIANCE | Deviation > 50% | Flagged with urgent CFO review language |
 
-PDF status indicators are revenue-aware:
-- Revenue line, actual > budget → green dot (FAV)
-- Cost line, actual > budget → red dot (UNF — overspend)
-- Cost line, actual < budget → green dot (FAV — underspend)
-- Any flagged row → amber triangle ([!])
+**PDF status column:**
+
+The status column in the variance summary table uses coloured symbols
+to show direction at a glance:
+
+| Situation | Symbol | Meaning |
+|-----------|--------|---------|
+| Revenue line, actual above budget | Green dot | More revenue than planned |
+| Revenue line, actual below budget | Red dot | Revenue shortfall |
+| Cost line, actual above budget | Red dot | Overspend against plan |
+| Cost line, actual below budget | Green dot | Underspend — saving |
+| Any flagged row | Amber triangle | Data quality issue — see flags section |
 
 ---
 
-## Input data format
+## Input format
 
 Standard P&L CSV with these columns:
 
@@ -150,7 +169,29 @@ Standard P&L CSV with these columns:
 date, account, department, actual, budget, prior_year
 ```
 
-See `data/sample_pnl.csv` for a working example including all edge case rows.
+See `data/sample_pnl.csv` for a working example including all five
+edge case rows.
+
+---
+
+## Human review
+
+The pipeline sets a `requires_review` flag in the audit log and prints
+a warning block in the terminal whenever any of the following occur:
+
+- **One or more data flags were raised** — the commentary is based on
+  incomplete data and must be checked before presenting to the Board
+- **API response was truncated** (`stop_reason = max_tokens`) — the
+  commentary may be cut off mid-sentence
+- **Output token count unusually low** (under 200 tokens) — the model
+  may have produced an incomplete response
+
+When `requires_review` is `true`, the reviewer should:
+
+1. Open the PDF report and read the **DATA FLAGS** section
+2. Resolve each flagged item with the relevant department
+3. Re-run the pipeline with corrected data
+4. Set `human_reviewed` to `true` in the audit log record before filing
 
 ---
 
@@ -167,8 +208,8 @@ Every run appends one record to `output/audit_log.jsonl`:
   "input_file":      "data/sample_pnl.csv",
   "input_rows":      7,
   "input_hash":      "sha256:c3a41176d88fdd785d7f891b5c2a3e4f",
-  "output_file":     "output/variance_commentary_2026-07-04_07-49-09.txt",
-  "pdf_file":        "output/variance_commentary_2026-07-04_07-49-09.pdf",
+  "output_file":     "output/variance_commentary_2026-07-04.txt",
+  "pdf_file":        "output/variance_commentary_2026-07-04.pdf",
   "model":           "claude-sonnet-4-6",
   "input_tokens":    895,
   "output_tokens":   1128,
@@ -179,41 +220,34 @@ Every run appends one record to `output/audit_log.jsonl`:
 }
 ```
 
-Human review is triggered automatically when flags are raised, output is truncated, or output token count is suspiciously low. The `input_hash` field proves which exact data version produced which output.
+The `input_hash` field (SHA256 of the raw CSV bytes) proves which
+exact data version produced which output. The same file always
+produces the same hash — making the audit trail tamper-evident.
 
 ---
 
 ## Test suite
 
-55 assertions across 6 test cases. No real API calls — runs in under 2 seconds:
+55 assertions across 6 test cases. No real API calls. Runs in under 2 seconds:
 
 ```bash
 pytest tests/test_pipeline.py -v
 ```
 
-Test cases follow the methodology protocol:
-- Happy path — clean data, full pipeline, audit log correct
-- Favourable variance — green dot for revenue over, cost under
-- Unfavourable variance — red dot for cost over, revenue under
-- Missing value — NaN detected, flagged, skipped, never invented
-- Zero actual — ZERO_ACTUAL raised, not LARGE_VARIANCE
-- Large variance — threshold detection, flag text, audit record
+The 6 test cases follow the standard validation protocol:
+happy path, favourable result, unfavourable result,
+missing value, zero actual, and large variance.
 
 ---
 
 ## Tech stack
 
-Python 3.11 · pandas · Claude API claude-sonnet-4-6 · python-dotenv · reportlab · hashlib · pytest
+Python 3.11 · pandas · Anthropic Claude API · python-dotenv ·
+reportlab · hashlib · pytest
 
 ---
 
-## CV bullet
-
-Built AI-powered FP&A variance commentary engine in Python using Claude API, generating structured PDF management accounts reports from raw P&L data in under 15 seconds, with automated data quality flagging, revenue-aware status indicators, and full SHA256 audit trail.
-
----
-
-## Part of the AI Finance Portfolio
+## Related projects
 
 | # | Project | Status |
 |---|---------|--------|
