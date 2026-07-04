@@ -21,3 +21,6 @@ desktop.ini
 
 # VS Code settings
 .vscode/
+
+# Internal career documents — never commit to public repo
+cv_bullets.txt
