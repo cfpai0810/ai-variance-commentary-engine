@@ -1,5 +1,5 @@
 # =============================================================================
-# ai_engine.py — Layer 3: AI Prompt Engineering and API Calls
+# ai_engine.py - Layer 3: AI Prompt Engineering and API Calls
 # =============================================================================
 # Responsibilities:
 #   - Build the system prompt and user prompt for every run
@@ -19,12 +19,17 @@ from config import (
     MAX_TOKENS,
     DEFAULT_PERIOD,
     DEFAULT_ENTITY,
+    CURRENCY_CODE,
+    CURRENCY_SYMBOL,
 )
 
-# ── Initialise the Claude client once at module level ─────────────────────────
-# Creating the client here means it is reused for every call in the session.
-# Never recreate the client inside a function — it wastes time and memory.
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+# ── Client seam ───────────────────────────────────────────────────────────────
+# The CLI builds one client from the env key at import and reuses it. The web
+# has no env key at import (the user pastes a key AFTER load) and two users have
+# two keys, so a frozen module global will not do. Build the module client only
+# when an env key is present (CLI); otherwise leave it None and let each web call
+# pass its own per-session client into call_claude(). Never recreate per call.
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
 
 # =============================================================================
@@ -35,8 +40,8 @@ def build_prompt(df, flags, period, entity):
     Build the system prompt and user prompt for the Claude API call.
 
     Finance context: This is where you hand the brief to Claude.
-    The system prompt is the standing contract — written once, reused
-    every run. The user prompt is the variable layer — changes with
+    The system prompt is the standing contract - written once, reused
+    every run. The user prompt is the variable layer - changes with
     each period's data.
 
     Anthropic best practice: data goes inside XML tags, query goes
@@ -60,7 +65,7 @@ def build_prompt(df, flags, period, entity):
         entity = DEFAULT_ENTITY
 
     # =========================================================================
-    # SYSTEM PROMPT — fixed contract, never changes between runs
+    # SYSTEM PROMPT - fixed contract, never changes between runs
     # Five mandatory sections: role, success criteria, constraints,
     # uncertainty handling, output format
     # =========================================================================
@@ -72,7 +77,7 @@ def build_prompt(df, flags, period, entity):
         "- Use direction-aware language: favourable variances are framed as "
         "opportunities or achievements, unfavourable variances include a root cause "
         "and a recommended corrective action\n"
-        "- Commentary is concise, professional, and CFO-ready — no filler phrases, "
+        "- Commentary is concise, professional, and CFO-ready - no filler phrases, "
         "no corporate jargon\n"
         "- Prior year comparisons are included where data is available\n"
         "- The tone is analytical and confident, not hedged or vague\n"
@@ -80,26 +85,29 @@ def build_prompt(df, flags, period, entity):
         "<constraints>\n"
         "- NEVER invent, estimate, or extrapolate any number not present in the data\n"
         "- NEVER round figures differently from how they are provided\n"
-        "- If a row is flagged, acknowledge the flag explicitly — do not write "
+        "- If a row is flagged, acknowledge the flag explicitly - do not write "
         "commentary as if the data is complete\n"
-        "- All amounts are in EUR unless stated otherwise\n"
+        "- All amounts are in " + CURRENCY_CODE + " unless stated otherwise\n"
         "- Do not use phrases like 'it is worth noting' or 'it should be highlighted' "
-        "— state the point directly\n"
+        "- state the point directly\n"
+        "- Never use em dashes or en dashes. Use plain hyphens only.\n"
         "</constraints>\n\n"
         "<uncertainty_handling>\n"
         "- If a data field is missing or flagged, write: "
-        "[FLAG: reason] — e.g. [FLAG: Missing actual for Legal and Compliance]\n"
+        "[FLAG: reason] - e.g. [FLAG: Missing actual for Legal and Compliance]\n"
         "- Do not attempt to estimate or fill a missing value\n"
-        "- If a variance is very large (>50%), note that it requires urgent CFO review\n"
+        "- If a variance is flagged as LARGE_VARIANCE, it has exceeded its review "
+        "threshold for that line and requires CFO review. Refer to the threshold "
+        "shown in the flag rather than any fixed percentage.\n"
         "</uncertainty_handling>\n\n"
         "<output_format>\n"
-        "Produce output in exactly this structure — no deviation:\n\n"
+        "Produce output in exactly this structure - no deviation:\n\n"
         "EXECUTIVE SUMMARY\n"
         "[3 sentences maximum. Overall performance vs budget. "
         "Biggest positive driver. Biggest negative driver or risk.]\n\n"
         "LINE ITEM COMMENTARY\n"
         "[One paragraph per department. Format each paragraph as:]\n"
-        "[Department — Account]: [2-3 sentences. Variance amount and %. "
+        "[Department | Account]: [2-3 sentences. Variance amount and %. "
         "Root cause or explanation. Prior year comparison if available. "
         "Recommended action if unfavourable.]\n\n"
         "DATA FLAGS\n"
@@ -108,7 +116,7 @@ def build_prompt(df, flags, period, entity):
     )
 
     # =========================================================================
-    # USER PROMPT — variable layer, rebuilt every run
+    # USER PROMPT - variable layer, rebuilt every run
     # Structure: context -> data (XML tags) -> flags -> query
     # Anthropic docs: put data before the query for best results
     # =========================================================================
@@ -119,22 +127,22 @@ def build_prompt(df, flags, period, entity):
         dept = row["department"]
         acct = row["account"]
 
-        # Format actual — handle missing value
+        # Format actual - handle missing value
         if pd.isna(row["actual"]):
             actual_str = "MISSING"
         else:
-            actual_str = "€{:,.0f}".format(row["actual"])
+            actual_str = CURRENCY_SYMBOL + "{:,.0f}".format(row["actual"])
 
-        # Format budget — always present (validated in data_loader)
-        budget_str = "€{:,.0f}".format(row["budget"])
+        # Format budget - always present (validated in data_loader)
+        budget_str = CURRENCY_SYMBOL + "{:,.0f}".format(row["budget"])
 
-        # Format variance columns — None means row was flagged and skipped
+        # Format variance columns - None means row was flagged and skipped
         if pd.notna(row["variance_abs"]) and pd.notna(row["variance_pct"]):
-            var_str = "€{:+,.0f} ({:+.1%})".format(
+            var_str = CURRENCY_SYMBOL + "{:+,.0f} ({:+.1%})".format(
                 row["variance_abs"], row["variance_pct"]
             )
         else:
-            var_str = "N/A — see flags"
+            var_str = "N/A - see flags"
 
         # Format prior year comparison
         if pd.notna(row["prior_year_pct"]):
@@ -161,7 +169,7 @@ def build_prompt(df, flags, period, entity):
         "REPORTING CONTEXT\n"
         "Period:  {}\n"
         "Entity:  {}\n"
-        "Currency: EUR\n\n"
+        "Currency: " + CURRENCY_CODE + "\n\n"
         "<financial_data>\n"
         "{}\n"
         "</financial_data>\n\n"
@@ -184,7 +192,7 @@ def build_prompt(df, flags, period, entity):
 # =============================================================================
 # FUNCTION 2: Call the Claude API
 # =============================================================================
-def call_claude(system_prompt, user_prompt):
+def call_claude(system_prompt, user_prompt, client=None):
     """
     Send the system and user prompts to Claude and return the response.
 
@@ -193,23 +201,34 @@ def call_claude(system_prompt, user_prompt):
     everything needed for the audit log: tokens and stop reason.
 
     Error handling covers every failure mode with clear messages:
-    - AuthenticationError: API key wrong or missing — check .env
-    - RateLimitError: too many requests — wait and retry
-    - APIStatusError 5xx: server error — SDK retries 2x automatically
+    - AuthenticationError: API key wrong or missing - check .env
+    - RateLimitError: too many requests - wait and retry
+    - APIStatusError 5xx: server error - SDK retries 2x automatically
     - APIConnectionError: no internet connection
-    - max_tokens stop_reason: response truncated — output may be incomplete
+    - max_tokens stop_reason: response truncated - output may be incomplete
 
     Args:
         system_prompt: fixed contract prompt from build_prompt()
         user_prompt:   variable data prompt from build_prompt()
+        client:        optional per-session Anthropic client (web, bring-your-own
+                       -key). When None, falls back to the module client built
+                       from the env key (CLI).
 
     Returns:
         (response_text, input_tokens, output_tokens, stop_reason)
-        — always a tuple of (str, int, int, str), never None
+        - always a tuple of (str, int, int, str), never None
 
     Raises:
         RuntimeError with clear human-readable message on any failure
     """
+    # Per-session client if passed (web); otherwise the module client (CLI).
+    client = client or globals().get("client")
+    if client is None:
+        raise RuntimeError(
+            "No Anthropic client available. On the CLI, set ANTHROPIC_API_KEY "
+            "in your .env; on the web, paste your API key first."
+        )
+
     print("\n[..] Calling Claude API ({})...".format(MODEL))
 
     try:
@@ -236,7 +255,7 @@ def call_claude(system_prompt, user_prompt):
 
     except anthropic.APIStatusError as e:
         raise RuntimeError(
-            "Anthropic API error after retries: {} — {}\n"
+            "Anthropic API error after retries: {} - {}\n"
             "If this persists, report the error to Anthropic support.".format(
                 e.status_code, e.message
             )
@@ -261,14 +280,14 @@ def call_claude(system_prompt, user_prompt):
     output_tokens = response.usage.output_tokens
     stop_reason   = response.stop_reason
 
-    # Warn if response was truncated — output may be incomplete
+    # Warn if response was truncated - output may be incomplete
     if stop_reason == "max_tokens":
         print(
             "[WARN] Response truncated at {} tokens. "
             "Consider increasing MAX_TOKENS in config.py.".format(MAX_TOKENS)
         )
 
-    # Warn if output token count is suspiciously low — commentary may be incomplete
+    # Warn if output token count is suspiciously low - commentary may be incomplete
     # A full variance commentary for 7 rows should produce at least 200 tokens
     if output_tokens < 200 and stop_reason != "max_tokens":
         print(
@@ -276,7 +295,7 @@ def call_claude(system_prompt, user_prompt):
             "The commentary may be incomplete. Review before use.".format(output_tokens)
         )
 
-    # Print summary — always runs regardless of stop_reason
+    # Print summary - always runs regardless of stop_reason
     approx_cost = (input_tokens * 0.000003) + (output_tokens * 0.000015)
 
     print("[OK] Claude responded")

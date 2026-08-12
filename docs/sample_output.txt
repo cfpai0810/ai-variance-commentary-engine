@@ -1,58 +1,39 @@
 VARIANCE COMMENTARY - GENERATED OUTPUT
 ============================================================
-Generated:  2026-07-04T07:49:09+00:00
+Generated:  2026-08-08T16:36:51.876311+00:00
 Period:     March 2026
 Entity:     Valencia Operations
 Input file: sample_pnl.csv
 Model:      claude-sonnet-4-6
-Tokens:     895 in / 1,128 out
-Flags:      3 raised
+Tokens:     955 in / 1,073 out
+Flags:      4 raised
 ============================================================
 
 EXECUTIVE SUMMARY
-Valencia Operations delivered revenue of EUR 1,250,000 in March 2026,
-exceeding budget by EUR 150,000 (+13.6%), though growth has moderated
-from the +19.0% achieved against prior year. The principal positive
-driver is Sales outperformance, supported by an HR underspend of
-EUR 10,000. Three flagged line items — Technology, Admin, and Product
-R&D — prevent a complete assessment of overall profitability for the
-period.
+Valencia Operations delivered a strong revenue performance in March 2026, with Sales exceeding budget by 13.6%, though this variance requires CFO review per the flagged threshold. The most significant cost pressure is in Product R&D, where actual spend exceeded budget by 122.5% - a LARGE_VARIANCE flag that demands immediate CFO review. Data completeness is compromised by a missing actual for Admin (Legal and Compliance) and a zero actual for Technology IT Infrastructure, both of which must be resolved before this period can be closed.
+
+---
 
 LINE ITEM COMMENTARY
-Sales — Revenue: Revenue of EUR 1,250,000 exceeded budget by EUR 150,000
-(+13.6%), representing a strong commercial result. Growth against prior
-year stands at +19.0%, indicating continued momentum. No corrective
-action required; Sales to provide forward pipeline visibility for Q2.
 
-Operations — COGS: COGS of EUR 480,000 exceeded budget by EUR 60,000
-(+14.3%), broadly proportionate to the revenue overrun. Year-on-year
-COGS growth of +23.1% outpaces revenue growth of +19.0%, indicating
-margin compression. Operations to provide a unit cost breakdown.
+[Sales | Revenue]: Actual revenue of EUR 1,250,000 exceeded budget of EUR 1,100,000 by EUR 150,000. This variance of +13.6% has breached the 10% review threshold and is flagged as LARGE_VARIANCE, requiring CFO review before attribution to any specific driver. [FLAG: LARGE_VARIANCE - Sales exceeds budget by 13.6%, above the 10% threshold. Prior year comparison unavailable.]
 
-Marketing — Marketing Spend: Marketing spend of EUR 95,000 exceeded
-budget by EUR 15,000 (+18.8%). Year-on-year spend growth of +31.9%
-substantially outpaces revenue growth of +19.0%. Marketing to provide
-a channel-level breakdown and confirm whether the overrun was
-pre-approved.
+[Operations | COGS]: COGS of EUR 480,000 exceeded budget by EUR 60,000 (+14.3%), and is up 23.1% against prior year, indicating a sustained upward cost trajectory. Given that revenue is also above budget, a portion of this overrun may reflect variable cost scaling; however, the rate of COGS growth (14.3%) outpacing any confirmed revenue mix improvement warrants a margin dilution review. Operations should provide a breakdown between volume-driven and price-driven cost increases to determine whether corrective action on supplier terms or production efficiency is required.
 
-HR — Headcount Cost: Headcount cost of EUR 310,000 came in EUR 10,000
-favourable to budget (-3.1%). HR to confirm whether the underspend
-reflects open vacancies (timing risk) or a structural saving.
+[Marketing | Marketing Spend]: Marketing spend of EUR 95,000 exceeded budget by EUR 15,000 (+18.8%), and is up 31.9% year-on-year, continuing an accelerating spend trend. In the context of revenue outperformance, this overspend may reflect deliberate demand generation activity; however, the absence of a confirmed causal link between the additional EUR 15,000 and the revenue surplus means it cannot yet be classified as favourable. Marketing should provide a campaign-level reconciliation to confirm return on the incremental spend, failing which this overage should be treated as uncontrolled.
 
-Technology — IT Infrastructure: [FLAG: ZERO_ACTUAL — Actual recorded
-as EUR 0 against a budget of EUR 45,000.] Requires immediate
-clarification from Technology and Finance before period close.
+[HR | Headcount Cost]: Headcount costs of EUR 310,000 came in EUR 10,000 (-3.1%) below budget, a favourable variance against a prior year increase of 6.9%. This suggests effective headcount control or timing differences in hiring activity. No corrective action is required; HR should confirm whether the underspend reflects a permanent position or deferred recruitment costs that will land in a future period.
 
-Admin — Legal & Compliance: [FLAG: MISSING_ACTUAL — No actual figure
-submitted against a budget of EUR 25,000.] Variance cannot be
-calculated. Finance to obtain the actual before board pack finalisation.
+[Technology | IT Infrastructure]: Actual spend recorded as EUR 0 against a budget of EUR 45,000. This is flagged as ZERO_ACTUAL and no commentary on performance can be provided until the figure is verified. [FLAG: ZERO_ACTUAL - Technology IT Infrastructure shows EUR 0 actual against a budget of EUR 45,000. Confirm whether spend has been omitted, deferred, or incorrectly coded.]
 
-Product — R&D Expense: [FLAG: LARGE_VARIANCE — Actual of EUR 890,000
-is EUR 490,000 above budget (+122.5%). Urgent CFO review required.]
-Possible causes include unbudgeted project acceleration, capitalisation
-policy change, or misposting.
+[Admin | Legal and Compliance]: No actual figure is available for this line. [FLAG: MISSING_ACTUAL - Admin Legal and Compliance actual is missing. Budget of EUR 25,000 cannot be assessed. Actual must be submitted before period close.]
+
+[Product | R&D Expense]: R&D spend of EUR 890,000 exceeded budget of EUR 400,000 by EUR 490,000 (+122.5%), breaching the 100% LARGE_VARIANCE threshold and requiring immediate CFO review. Prior year data is unavailable, preventing trend context. At EUR 490,000 above plan, this is the single largest budget deviation in the period and requires an urgent explanation from the Product team covering authorisation, phasing, and whether any portion relates to a capitalisation decision. No corrective framing can be applied until the variance is explained and validated.
+
+---
 
 DATA FLAGS
-- ZERO_ACTUAL: Technology (budget was 45,000)
-- MISSING_ACTUAL: Admin
-- LARGE_VARIANCE: Product (+122.5% above budget)
+- LARGE_VARIANCE: Sales | Revenue - actual of EUR 1,250,000 is +13.6% above budget, exceeding the 10% review threshold. CFO review required.
+- LARGE_VARIANCE: Product | R&D Expense - actual of EUR 890,000 is +122.5% above budget, exceeding the 100% review threshold. CFO review required immediately.
+- ZERO_ACTUAL: Technology | IT Infrastructure - EUR 0 recorded against a budget of EUR 45,000. Confirm whether spend is deferred, omitted, or miscoded.
+- MISSING_ACTUAL: Admin | Legal and Compliance - no actual submitted. Budget of EUR 25,000 cannot be assessed. Period close is blocked on this line.

@@ -1,8 +1,8 @@
 # AI Variance Commentary Engine
 
 A practical demonstration of how AI can be leveraged to transform
-traditional finance workflows — taking a task that typically takes
-4–6 hours and completing it in under 15 seconds, with higher
+traditional finance workflows - taking a task that typically takes
+4-6 hours and completing it in under 15 seconds, with higher
 consistency and a built-in audit trail.
 
 ---
@@ -35,12 +35,12 @@ example of the generated PDF report.
 The PDF report contains five sections:
 
 - Cover block with entity, period, model, and run metadata
-- Executive summary — 3-sentence narrative of overall performance
-- Variance summary table — all line items with actuals, budgets,
+- Executive summary - 3-sentence narrative of overall performance
+- Variance summary table - all line items with actuals, budgets,
   variances, and colour-coded status at a glance
-- Line item commentary — one paragraph per department with root
+- Line item commentary - one paragraph per department with root
   cause analysis and recommended action
-- Data flags action table — each flagged row with a specific
+- Data flags action table - each flagged row with a specific
   action required before the accounts can be signed off
 
 ---
@@ -71,15 +71,15 @@ python main.py
 
 The pipeline produces two files in `output/`:
 
-- `variance_commentary_YYYY-MM-DD_HH-MM-SS.txt` — plain-text commentary with run metadata header
-- `variance_commentary_YYYY-MM-DD_HH-MM-SS.pdf` — formatted A4 PDF report
+- `variance_commentary_YYYY-MM-DD_HH-MM-SS.txt` - plain-text commentary with run metadata header
+- `variance_commentary_YYYY-MM-DD_HH-MM-SS.pdf` - formatted A4 PDF report
 
 ---
 
 ## Project structure
 
 ```
-main.py                       Orchestrator — runs the full pipeline
+main.py                       Orchestrator - runs the full pipeline
 config.py                     All configuration and file paths
 requirements.txt              Pinned dependencies
 
@@ -106,7 +106,7 @@ tests/
 
 **Core design rule:** Python calculates all numbers. Claude only
 interprets and narrates. This makes every figure in the output
-traceable to a specific calculation — not to the language model.
+traceable to a specific calculation - not to the language model.
 
 ```
 P&L CSV input
@@ -136,15 +136,15 @@ output/variance_commentary_YYYY-MM-DD.pdf
 output/audit_log.jsonl
 ```
 
-**Edge case handling — before any data reaches Claude:**
+**Edge case handling - before any data reaches Claude:**
 
 | Flag | Condition | What the system does |
 |------|-----------|----------------------|
 | MISSING_ACTUAL | Blank actual cell | Flags the row, skips calculation, never invents a value |
 | MISSING_BUDGET | Blank budget cell | Flags the row, skips calculation |
 | ZERO_BUDGET | Budget = 0 | Flags the row, skips percentage calculation |
-| ZERO_ACTUAL | Actual = 0 | Flagged separately — prevents a false large-variance alert |
-| LARGE_VARIANCE | Deviation > 50% | Flagged with urgent CFO review language |
+| ZERO_ACTUAL | Actual = 0 | Flagged separately - prevents a false large-variance alert |
+| LARGE_VARIANCE | Deviation beyond that line's threshold (per-account policy, default 50%) | Flagged with the threshold named in the flag; routed to CFO review |
 
 **PDF status column:**
 
@@ -156,21 +156,68 @@ to show direction at a glance:
 | Revenue line, actual above budget | Green dot | More revenue than planned |
 | Revenue line, actual below budget | Red dot | Revenue shortfall |
 | Cost line, actual above budget | Red dot | Overspend against plan |
-| Cost line, actual below budget | Green dot | Underspend — saving |
-| Any flagged row | Amber triangle | Data quality issue — see flags section |
+| Cost line, actual below budget | Green dot | Underspend - saving |
+| Any flagged row | Amber triangle | Data quality issue - see flags section |
 
 ---
 
 ## Input format
 
-Standard P&L CSV with these columns:
+The tool reads a single P&L CSV with exactly these six columns (read by name, so
+column order does not matter):
 
-```
-date, account, department, actual, budget, prior_year
-```
+| Column | Meaning | Notes |
+| --- | --- | --- |
+| `date` | The month the row belongs to | ISO `YYYY-MM-DD` (for example `2026-03-31`); rows are grouped into periods by year and month. |
+| `account` | The P&L line | For example `Revenue`, `COGS`, `R&D Expense`. |
+| `department` | The label shown for the line | For example `Sales`, `Operations`, `Product`. |
+| `actual` | The actual figure | A number; blank (missing) or `0` (zero posting) is flagged for review. |
+| `budget` | The budget figure | A number; blank or zero is flagged. |
+| `prior_year` | The prior-year figure | A number, for the year-on-year comparison. |
 
-See `data/sample_pnl.csv` for a working example including all five
-edge case rows.
+See `data/sample_pnl.csv` for a working example with all five edge-case rows.
+
+---
+
+## Running on your own data
+
+The steps above run on the synthetic sample. To run on your own figures:
+
+- **Swap in your file.** Replace `data/sample_pnl.csv` with your own CSV (same six
+  columns), or point `SAMPLE_DATA` in `config.py` at a file elsewhere.
+- **Run the web app locally** (the most forgiving route, since the period picker
+  adapts to whatever months your data contains):
+  ```bash
+  pip install -r requirements.txt
+  streamlit run streamlit_app/Home.py
+  ```
+  Open the Variance Commentary page, pick a period, and generate. Paste your
+  Anthropic key in the sidebar, or set `ANTHROPIC_API_KEY`.
+- **Or run the CLI** with `python main.py`; it uses `DEFAULT_PERIOD` from
+  `config.py`. If your data does not contain that month, change it, or the run
+  stops with an error listing the periods your file has.
+
+A few constraints:
+
+- The six column names must match exactly; a missing or renamed column stops the
+  load. Dates must be `YYYY-MM-DD`. `actual`, `budget`, and `prior_year` must be
+  numeric (`actual` and `budget` may be blank for a missing figure); text in these
+  columns stops the load.
+- **Per-line thresholds are matched by account name.** The defaults fit the
+  sample's line names; if yours differ they fall back to the single default. Edit
+  `VARIANCE_THRESHOLDS` in `config.py` for your lines, or set them in the web app's
+  Flagging thresholds panel for a run.
+- **Currency is configurable and ships as euros.** The maths is currency-agnostic,
+  but the commentary, the table, the trend chart, and the report label figures in
+  the currency set in `config.py` (`CURRENCY_CODE` and `CURRENCY_SYMBOL`). Set them
+  (for example `USD` and `$`) to match your data; the model is told the currency,
+  so it describes the figures correctly.
+
+**What leaves your machine.** The figures, the variances, and the flags are all
+computed locally. Only the selected period's figures are sent to the Anthropic
+API, in your own account under your own key, so the model can describe them;
+nothing goes to this project's authors, and your key is not stored. The commentary
+is the only step that uses the API; everything else is local and needs no key.
 
 ---
 
@@ -179,11 +226,11 @@ edge case rows.
 The pipeline sets a `requires_review` flag in the audit log and prints
 a warning block in the terminal whenever any of the following occur:
 
-- **One or more data flags were raised** — the commentary is based on
+- **One or more data flags were raised** - the commentary is based on
   incomplete data and must be checked before presenting to the Board
-- **API response was truncated** (`stop_reason = max_tokens`) — the
+- **API response was truncated** (`stop_reason = max_tokens`) - the
   commentary may be cut off mid-sentence
-- **Output token count unusually low** (under 200 tokens) — the model
+- **Output token count unusually low** (under 200 tokens) - the model
   may have produced an incomplete response
 
 When `requires_review` is `true`, the reviewer should:
@@ -214,15 +261,25 @@ Every run appends one record to `output/audit_log.jsonl`:
   "input_tokens":    895,
   "output_tokens":   1128,
   "stop_reason":     "end_turn",
-  "flags_raised":    ["MISSING_ACTUAL: Admin", "ZERO_ACTUAL: Technology"],
+  "flags_raised":    [
+    "LARGE_VARIANCE: Sales (+13.6% above budget, threshold 10%)",
+    "ZERO_ACTUAL: Technology (budget was 45,000)",
+    "MISSING_ACTUAL: Admin",
+    "LARGE_VARIANCE: Product (+122.5% above budget, threshold 100%)"
+  ],
+  "thresholds": {
+    "Revenue": 0.10, "COGS": 0.15, "Marketing Spend": 0.30,
+    "Headcount Cost": 0.15, "IT Infrastructure": 0.40,
+    "Legal & Compliance": 0.50, "R&D Expense": 1.00, "_default": 0.50
+  },
   "human_reviewed":  false,
   "requires_review": true
 }
 ```
 
-The `input_hash` field (SHA256 of the raw CSV bytes) proves which
-exact data version produced which output. The same file always
-produces the same hash — making the audit trail tamper-evident.
+The `input_hash` field (SHA256 of the scoped input rows for the period)
+proves which exact data produced which output. The same rows always
+produce the same hash, making the audit trail tamper-evident.
 
 ---
 

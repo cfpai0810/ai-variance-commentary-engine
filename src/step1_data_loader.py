@@ -13,10 +13,17 @@
 import pandas as pd
 from pathlib import Path
 
-from config import LARGE_VARIANCE_THRESHOLD
+from config import LARGE_VARIANCE_THRESHOLD, VARIANCE_THRESHOLDS, CURRENCY_SYMBOL
 
 # Required columns — any CSV missing these is rejected immediately
 REQUIRED_COLUMNS = {'date', 'account', 'department', 'actual', 'budget', 'prior_year'}
+
+# Fixed English month names - locale-safe period parsing. Never strftime('%B'),
+# which returns a localised name on some machines and silently breaks the match.
+MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
 
 
 # =============================================================================
@@ -101,9 +108,77 @@ def load_pnl(filepath):
 
 
 # =============================================================================
+# Period scoping: filter the loaded data to a single reporting period
+# =============================================================================
+def _period_to_prefix(period):
+    """Resolve a period to a 'YYYY-MM' prefix.
+
+    Accepts either a label ('March 2026') or an ISO date ('2026-03-31').
+    Locale-safe: uses the fixed MONTH_NAMES list, never locale-dependent
+    strftime, so it behaves the same on any machine.
+    """
+    period = period.strip()
+    # ISO date form: '2026-03-31' -> '2026-03'
+    if len(period) >= 7 and period[:4].isdigit() and period[4] == "-":
+        return period[:7]
+    # Label form: 'March 2026' -> '2026-03'
+    parts = period.split()
+    if len(parts) == 2 and parts[0] in MONTH_NAMES and parts[1].isdigit():
+        month = MONTH_NAMES.index(parts[0]) + 1
+        return f"{parts[1]}-{month:02d}"
+    raise ValueError(f"Unrecognised period: {period!r}")
+
+
+def available_periods(df):
+    """Return an ordered list of (date, label) for each period in the data.
+
+    Chronological. The web picker uses this; the CLI can use it to validate the
+    default period.
+    """
+    periods = []
+    for d in sorted(df["date"].unique()):
+        year, month = d[:4], int(d[5:7])
+        periods.append((d, f"{MONTH_NAMES[month - 1]} {year}"))
+    return periods
+
+
+def filter_to_period(df, period):
+    """Return the rows for one period as a copy, leaving df unchanged.
+
+    period may be a label ('March 2026') or an ISO date ('2026-03-31'). Matching
+    is on the 'YYYY-MM' prefix, so it is robust to the month-end day (28/30/31).
+    Raises ValueError (listing available periods) if nothing matches.
+    """
+    prefix = _period_to_prefix(period)
+    subset = df[df["date"].str.startswith(prefix)].copy()
+    if subset.empty:
+        labels = [label for _, label in available_periods(df)]
+        raise ValueError(
+            f"No data for period {period!r}. Available periods: {labels}"
+        )
+    return subset
+
+
+# =============================================================================
 # FUNCTION 2: Validate data and flag edge cases
 # =============================================================================
-def validate_and_flag(df):
+def _resolve_thresholds(thresholds):
+    """Return a policy dict with a guaranteed '_default' key.
+
+    thresholds=None -> build from config (global default + per-account map).
+    A caller (e.g. the web layer) may pass its own dict; we still ensure a
+    '_default' key so lookups never fail.
+    """
+    if thresholds is None:
+        policy = dict(VARIANCE_THRESHOLDS)
+        policy["_default"] = LARGE_VARIANCE_THRESHOLD
+        return policy
+    policy = dict(thresholds)
+    policy.setdefault("_default", LARGE_VARIANCE_THRESHOLD)
+    return policy
+
+
+def validate_and_flag(df, thresholds=None):
     """
     Scan every row for edge cases and return a list of flags.
 
@@ -121,13 +196,19 @@ def validate_and_flag(df):
 
     Args:
         df: DataFrame returned by load_pnl()
+        thresholds: optional dict {account: fraction, '_default': fraction}.
+            When None, the per-account policy from config is used. Each row's
+            LARGE_VARIANCE check uses its account's threshold, falling back to
+            '_default'.
 
     Returns:
-        (df, flags) — same DataFrame unchanged + list of flag strings
+        (df, flags) - same DataFrame unchanged + list of flag strings
     """
+    policy = _resolve_thresholds(thresholds)
     flags = []
 
     for _, row in df.iterrows():
+        acct   = row['account']
         dept   = row['department']
         actual = row['actual']
         budget = row['budget']
@@ -152,13 +233,14 @@ def validate_and_flag(df):
             flags.append(f"ZERO_ACTUAL: {dept} (budget was {budget:,.0f})")
             continue
 
-        # 5. Large variance — beyond threshold in either direction
+        # 5. Large variance - beyond this account's threshold, either direction
         variance_pct = (actual - budget) / budget
-        if abs(variance_pct) > LARGE_VARIANCE_THRESHOLD:
+        thr = policy.get(acct, policy["_default"])
+        if abs(variance_pct) > thr:
             direction = "over budget" if variance_pct < 0 else "above budget"
             flags.append(
                 f"LARGE_VARIANCE: {dept} "
-                f"({variance_pct:+.1%} {direction})"
+                f"({variance_pct:+.1%} {direction}, threshold {thr:.0%})"
             )
 
     print(f"\n[OK] Validation complete")
@@ -241,7 +323,7 @@ def calculate_variances(df, flags):
     print(f"     Rows calculated: {calculated}")
     print(f"     Rows skipped (flagged): {skipped}")
     print(f"\n     {'Department':<25} {'Actual':>12} {'Budget':>12} "
-          f"{'Var €':>12} {'Var %':>8} {'vs PY':>8}")
+          f"{('Var ' + CURRENCY_SYMBOL):>12} {'Var %':>8} {'vs PY':>8}")
     print(f"     {'-'*25} {'-'*12} {'-'*12} {'-'*12} {'-'*8} {'-'*8}")
 
     for _, row in df.iterrows():

@@ -17,7 +17,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.step1_data_loader   import load_pnl, validate_and_flag, calculate_variances
+from src.step1_data_loader   import load_pnl, filter_to_period, validate_and_flag, calculate_variances
 from src.step2_ai_engine     import build_prompt, call_claude
 from src.step3_output_writer import write_output, write_pdf
 from config                  import SAMPLE_DATA, DEFAULT_PERIOD, DEFAULT_ENTITY, AUDIT_LOG
@@ -26,8 +26,9 @@ from config                  import SAMPLE_DATA, DEFAULT_PERIOD, DEFAULT_ENTITY,
 if __name__ == "__main__":
 
     # Layer 2 - Data
-    df              = load_pnl(SAMPLE_DATA)
-    df, flags       = validate_and_flag(df)
+    full_df         = load_pnl(SAMPLE_DATA)          # full 12 months (kept for the trend)
+    df              = filter_to_period(full_df, DEFAULT_PERIOD)   # scope to one period before anything downstream
+    df, flags       = validate_and_flag(df)          # thresholds=None -> config per-line policy
     df              = calculate_variances(df, flags)
 
     # Layer 3 - AI Engine
@@ -35,11 +36,15 @@ if __name__ == "__main__":
     commentary, tok_in, tok_out, stop_reason = call_claude(system_p, user_p)
 
     # Layer 4 - Output
+    # COUPLING: validate_and_flag(df) above used the config policy (thresholds=None),
+    # so pass thresholds=None here too and the audit records that same config policy.
+    # A future caller passing a custom policy to validate_and_flag MUST pass the
+    # identical dict here, or the recorded policy will not match the flags.
     txt_path = write_output(
         commentary, SAMPLE_DATA, flags, tok_in, tok_out, stop_reason,
-        input_rows=len(df)
+        input_rows=len(df), thresholds=None, df=df
     )
-    pdf_path = write_pdf(commentary, df, flags, tok_in, tok_out)
+    pdf_path = write_pdf(commentary, df, flags, tok_in, tok_out, df_12mo=full_df)
 
     print("\n[DONE] Pipeline complete.")
     print("       Text: {}".format(txt_path))
@@ -62,9 +67,9 @@ if __name__ == "__main__":
                 for flag in audit["flags_raised"]:
                     print("    -> {}".format(flag))
             if audit.get("stop_reason") == "max_tokens":
-                print("  Response was truncated — commentary may be incomplete.")
+                print("  Response was truncated - commentary may be incomplete.")
             if audit.get("output_tokens", 999) < 200:
-                print("  Output token count unusually low — commentary may be incomplete.")
+                print("  Output token count unusually low - commentary may be incomplete.")
             print("  Review the commentary before presenting to the CFO or Board.")
             print("!" * 60)
         else:

@@ -22,6 +22,9 @@ desktop.ini
 # VS Code settings
 .vscode/
 
+# Scratch/temp files from manual verification
+_scratch_*
+
 # Internal documents — never commit to public repo
 cv_bullets.txt
 debrief_log.txt

@@ -19,15 +19,17 @@
 #   - Revenue-aware status: cost overspend = red, cost underspend = green
 #   - All backgrounds use Table+TableStyle (not ParagraphStyle.backColor)
 #   - All HexColor objects defined once at module level, never double-wrapped
-#   - extract_label() splits on ' — ' not first ':' — avoids [FLAG: conflict
+#   - extract_label() splits on ' | ' not first ':' - avoids [FLAG: conflict
 #   - clean_markdown() strips ** ## --- artefacts from Claude output
 # =============================================================================
 
 import re
 import hashlib
 import json
+from io import BytesIO
 from pathlib import Path
 from datetime import datetime, timezone
+from xml.sax.saxutils import escape as _xml_escape
 
 import pandas as pd
 
@@ -38,8 +40,9 @@ from reportlab.lib.styles    import ParagraphStyle
 from reportlab.lib.enums     import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.platypus      import (
     SimpleDocTemplate, Paragraph, Spacer,
-    HRFlowable, Table, TableStyle, KeepTogether
+    HRFlowable, Table, TableStyle, KeepTogether, Image
 )
+from reportlab.lib.utils     import ImageReader
 
 from config import (
     OUTPUT_DIR,
@@ -47,6 +50,8 @@ from config import (
     DEFAULT_PERIOD,
     DEFAULT_ENTITY,
     MODEL,
+    LARGE_VARIANCE_THRESHOLD,
+    VARIANCE_THRESHOLDS,
 )
 
 # ── Page geometry ─────────────────────────────────────────────────────────────
@@ -90,6 +95,19 @@ EM = "\u2014"   # — em dash: used for missing/unavailable numeric values
 # UTILITY FUNCTIONS
 # =============================================================================
 
+def _esc(text):
+    """XML-escape dynamic text before it goes inside a reportlab Paragraph.
+
+    reportlab parses Paragraph content as mini-XML, so a bare '&' immediately
+    followed by a name character (as in 'R&D Expense') is read as the start of
+    an entity reference and mangled - 'R&D Expense' renders as 'R&D; Expense'.
+    Escaping &, <, > fixes it. Safe to apply to every account/department/
+    commentary token because clean_markdown has already stripped Claude's
+    markdown down to plain text: there is no intended reportlab markup in the
+    content to double-escape (the <b>/<font> tags are added around it, here)."""
+    return _xml_escape(str(text))
+
+
 def clean_markdown(text):
     """
     Strip Claude markdown artefacts before PDF rendering.
@@ -105,40 +123,56 @@ def clean_markdown(text):
 
 def extract_label(line):
     """
-    Safely extract the department — account label from a line item.
+    Safely extract the 'Department | Account' label from a line item.
 
-    Splits on ' — ' to find the label boundary, NOT on the first colon.
+    Splits on ' | ' to find the label boundary, NOT on the first colon.
     The first-colon approach broke on flagged lines because '[FLAG:'
     also contains a colon, producing corrupt labels like:
-        'Technology — IT Infrastructure: [FLAG'  <- wrong
+        'Technology | IT Infrastructure: [FLAG'  <- wrong
 
     This correctly produces:
-        label = 'Technology — IT Infrastructure'
-        body  = '[FLAG: ZERO_ACTUAL — ...]'
+        label = 'Technology | IT Infrastructure'
+        body  = '[FLAG: ZERO_ACTUAL ...]'
+
+    The pipe is unambiguous: it never appears in a department or account
+    name and does not collide with '[FLAG:'. Legacy em/en dash separators
+    are still accepted so any pre-existing output remains parseable.
+
+    The model brackets its labels ('[Department | Account]'); a matched outer
+    '[ ]' pair is stripped so both the PDF and the web cards show a clean label
+    ('Sales | Revenue', not '[Sales | Revenue]'). Only a matched pair is stripped;
+    a lone unmatched bracket is left as-is. This is a display transform on the
+    label only: it never touches the stored commentary, so the verbatim
+    fabrication guard is unaffected.
 
     Returns (label, body) or (None, line) if no pattern found.
     """
-    # Handle both standard dash and unicode em dash in input
+    # Pipe is the current separator; em/en dash kept as legacy tolerance.
     sep = None
-    if ' \u2014 ' in line:
+    if ' | ' in line:
+        sep = ' | '
+    elif ' \u2014 ' in line:
         sep = ' \u2014 '
     elif ' \u2013 ' in line:
         sep = ' \u2013 '
-    elif ' — ' in line:
-        sep = ' — '
 
     if sep is None:
         return None, line
 
-    dash_pos  = line.index(sep)
-    colon_pos = line[dash_pos:].find(': ')
+    sep_pos   = line.index(sep)
+    colon_pos = line[sep_pos:].find(': ')
 
     if colon_pos == -1:
         return None, line
 
-    label_end = dash_pos + colon_pos
+    label_end = sep_pos + colon_pos
     label     = re.sub(r'\*\*([^*]+)\*\*', r'\1',
                        line[:label_end].strip()).strip('*').strip()
+    # Strip a matched outer bracket pair (the model wraps labels in '[ ]'). Done
+    # after the markdown strip so a bold-wrapped label ('**[A | B]**') also cleans
+    # up. Matched only: a lone '[' or ']' is left as-is.
+    if label.startswith("[") and label.endswith("]"):
+        label = label[1:-1].strip()
     body      = line[label_end + 2:].strip()
 
     return label, body
@@ -238,15 +272,15 @@ def _cover_block(period, entity, ts, tok_in, tok_out, nflags):
     """Full-width dark blue cover — title row + metadata row."""
     rows = [
         [Paragraph(
-            '<font color="white"><b>VARIANCE COMMENTARY  —  {}</b></font>'.format(
-                period.upper()),
+            '<font color="white"><b>VARIANCE COMMENTARY  -  {}</b></font>'.format(
+                _esc(period.upper())),
             ParagraphStyle("CT", fontName="Helvetica-Bold", fontSize=18,
                 textColor=colors.white, alignment=TA_CENTER)
         )],
         [Paragraph(
             '<font color="#AACCEE">{}  ·  AI Generated  ·  {}  ·  '
             '{:,}/{:,} tokens  ·  {} flag(s)</font>'.format(
-                entity, MODEL, tok_in, tok_out, nflags),
+                _esc(entity), MODEL, tok_in, tok_out, nflags),
             ParagraphStyle("CS", fontName="Helvetica", fontSize=9,
                 textColor=colors.HexColor("#AACCEE"), alignment=TA_CENTER)
         )],
@@ -313,8 +347,8 @@ def _variance_table(df):
         )
 
         rows.append([
-            Paragraph(str(row["department"]), S_TBL),
-            Paragraph(str(row["account"]),    S_TBL),
+            Paragraph(_esc(row["department"]), S_TBL),
+            Paragraph(_esc(row["account"]),    S_TBL),
             _muted_para(actual_str),
             _muted_para(budget_str),
             _muted_para(var_str),
@@ -387,10 +421,10 @@ def _flag_summary_table(flags):
 
         rows.append([
             Paragraph(
-                '<font color="{}"><b>{}</b></font>'.format(tc_hex, flag_type),
+                '<font color="{}"><b>{}</b></font>'.format(tc_hex, _esc(flag_type)),
                 S_TBL
             ),
-            Paragraph(dept_part, S_TBL),
+            Paragraph(_esc(dept_part), S_TBL),
             Paragraph(action,    S_TBL),
         ])
 
@@ -417,12 +451,12 @@ def _line_item(label, body):
     """Standard line item: light blue label row + white body row."""
     rows = [
         [Paragraph(
-            '<b>{}</b>'.format(label),
+            '<b>{}</b>'.format(_esc(label)),
             ParagraphStyle("LIL", fontName="Helvetica-Bold", fontSize=10,
                 textColor=MID_BLUE, leading=14)
         )],
         [Paragraph(
-            body,
+            _esc(body),
             ParagraphStyle("LIB", fontName="Helvetica", fontSize=10,
                 textColor=BODY_DARK, leading=15)
         )],
@@ -454,7 +488,7 @@ def _flag_inline(text, severity="error"):
         bg, tc, bdr = AMBER_BG, AMBER, AMBER_BDR
 
     t = Table([[Paragraph(
-        '<b>[!]</b>  {}'.format(text),
+        '<b>[!]</b>  {}'.format(_esc(text)),
         ParagraphStyle("FI", fontName="Helvetica", fontSize=9,
             textColor=tc, leading=13)
     )]], colWidths=[PAGE_W])
@@ -469,16 +503,87 @@ def _flag_inline(text, severity="error"):
     return t
 
 
+def _normalise_dashes(text):
+    """Replace em/en dashes with plain hyphens in model-generated prose.
+
+    Applies to commentary text only. Does NOT touch the nil-value glyph used in
+    the PDF's number columns (EM), which is a separate, intentional accounting
+    symbol. Idempotent, so it is safe to apply at every writer entry point.
+    """
+    return text.replace("—", "-").replace("–", "-")
+
+
+# Below this many output tokens, a full 7-line commentary is suspiciously
+# short and likely incomplete. Same value the CLI has always used.
+LOW_TOKEN_FLOOR = 200
+
+
+def compute_requires_review(flags, stop_reason, output_tokens,
+                            low_token_floor=LOW_TOKEN_FLOOR):
+    """Return (requires_review: bool, reasons: list[str]).
+
+    Pure. No file IO, so both the CLI writer and the web page can share it.
+    Trips when any of:
+      - data flags were raised
+      - the model output was truncated (stop_reason indicates max_tokens)
+      - the output was suspiciously short (output_tokens < low_token_floor)
+
+    The short-output reason is suppressed when the output was truncated, so a
+    truncated-and-short run reads as one clear cause, not two. This preserves
+    the exact boolean the CLI has always recorded.
+    """
+    reasons = []
+    if flags:
+        reasons.append("Data flags were raised for this period.")
+    truncated = (stop_reason == "max_tokens")
+    if truncated:
+        reasons.append("The commentary was truncated (hit the token limit).")
+    if output_tokens < low_token_floor and not truncated:
+        reasons.append("The commentary was unusually short.")
+    return (len(reasons) > 0, reasons)
+
+
+INPUT_COLUMNS = ["date", "account", "department", "actual", "budget", "prior_year"]
+
+
+def hash_input(df):
+    """Return 'sha256:<hex>' of the canonical input data. Pure, no file IO, so
+    the CLI writer and the web audit can share it. Hashes only the input columns
+    in a fixed order, so the hash is stable regardless of any computed columns
+    added downstream and identical for the CLI and the web on the same scoped
+    data (this proves data lineage)."""
+    canonical = df[INPUT_COLUMNS].to_csv(index=False)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 # =============================================================================
 # FUNCTION 1: Write commentary text file and audit log
 # =============================================================================
-def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason, input_rows=0):
+def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason, input_rows=0, thresholds=None, df=None):
     """
     Write commentary to a timestamped text file and append one JSONL
     audit record per run. SHA256 hash of input file proves data lineage.
+
+    thresholds: optional per-line policy dict {account: fraction, '_default':
+    fraction}. Resolved and recorded in the audit so the flagging policy used
+    for the run becomes part of the provenance. When None, the config policy is
+    resolved and recorded.
     """
+    commentary = _normalise_dashes(commentary)
     input_file = Path(input_file)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Resolve the per-line threshold policy actually used for this run, mirroring
+    # step1's _resolve_thresholds so the record shows the real policy even when
+    # thresholds is None.
+    # COUPLING: this must match the policy passed to validate_and_flag for the
+    # same run, or the recorded policy will not match the flags it produced.
+    if thresholds is None:
+        policy = dict(VARIANCE_THRESHOLDS)
+        policy["_default"] = LARGE_VARIANCE_THRESHOLD
+    else:
+        policy = dict(thresholds)
+        policy.setdefault("_default", LARGE_VARIANCE_THRESHOLD)
 
     now     = datetime.now(timezone.utc)
     ts_file = now.strftime("%Y-%m-%d_%H-%M-%S")
@@ -512,16 +617,18 @@ def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason, in
 
     output_path.write_text(header + commentary, encoding="utf-8")
 
-    with open(input_file, "rb") as f:
-        input_hash = "sha256:" + hashlib.sha256(f.read()).hexdigest()
+    # Data lineage: hash the scoped input rows when the caller provides the df
+    # (shared with the web via hash_input); otherwise hash the file bytes.
+    if df is not None:
+        input_hash = hash_input(df)
+    else:
+        with open(input_file, "rb") as f:
+            input_hash = "sha256:" + hashlib.sha256(f.read()).hexdigest()
 
-    # Human review required when: flags raised, output truncated,
-    # or output suspiciously short (< 200 tokens — likely incomplete)
-    requires_review = (
-        len(flags) > 0
-        or stop_reason == "max_tokens"
-        or (tok_out < 200 and stop_reason != "max_tokens")
-    )
+    # Shared pure decision, so the CLI and the web page never diverge on when
+    # review is required. The audit still records the boolean below.
+    requires_review, _review_reasons = compute_requires_review(
+        flags, stop_reason, tok_out)
 
     audit_record = {
         "run_id":          ts_log,
@@ -538,6 +645,7 @@ def write_output(commentary, input_file, flags, tok_in, tok_out, stop_reason, in
         "output_tokens":   tok_out,
         "stop_reason":     stop_reason,
         "flags_raised":    flags,
+        "thresholds":      policy,   # the per-line flagging policy used for this run
         "human_reviewed":  False,
         "requires_review": requires_review,
     }
@@ -581,39 +689,24 @@ def update_audit_pdf(pdf_path):
     AUDIT_LOG.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 # =============================================================================
-# FUNCTION 2: Write PDF commentary report
+# FUNCTION 2: Build the PDF as bytes (shared), then write it (CLI)
 # =============================================================================
-def write_pdf(commentary, df, flags, tok_in, tok_out):
-    """
-    Format the commentary into a professional A4 PDF report.
+def build_pdf_bytes(commentary, df, flags, tok_in, tok_out, period, entity,
+                    ts_log, policy_note_text=None, df_12mo=None):
+    """Build the A4 PDF and return it as bytes. One layout, two sinks: the CLI
+    write_pdf writes these bytes to disk; the web serves them from a download
+    button. No file is written here.
 
-    Args:
-        commentary: plain text string returned by call_claude()
-        df:         DataFrame with variance columns from calculate_variances()
-        flags:      list of flag strings from validate_and_flag()
-        tok_in:     input token count from call_claude()
-        tok_out:    output token count from call_claude()
-
-    Returns:
-        pdf_path: Path to the written PDF file
-    """
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    now     = datetime.now(timezone.utc)
-    ts_file = now.strftime("%Y-%m-%d_%H-%M-%S")
-    ts_log  = now.isoformat()
-
-    pdf_filename = "variance_commentary_{}.pdf".format(ts_file)
-    pdf_path     = OUTPUT_DIR / pdf_filename
-
+    commentary is dash-normalised (the same text shown on screen). period, entity
+    and ts_log identify the run on the cover. policy_note_text, when given, adds a
+    one-line flagging-policy note under DATA FLAGS for provenance parity with the
+    screen."""
+    commentary = _normalise_dashes(commentary)
     sections = parse_sections(commentary)
-    story    = []
+    story = []
 
     # 1. Cover
-    story.append(_cover_block(
-        DEFAULT_PERIOD, DEFAULT_ENTITY,
-        ts_log, tok_in, tok_out, len(flags)
-    ))
+    story.append(_cover_block(period, entity, ts_log, tok_in, tok_out, len(flags)))
     story.append(Spacer(1, 0.4 * cm))
 
     # 2. Executive Summary
@@ -621,9 +714,7 @@ def write_pdf(commentary, df, flags, tok_in, tok_out):
     story.append(Spacer(1, 0.2 * cm))
     if sections["executive_summary"]:
         story.append(Paragraph(
-            sections["executive_summary"].replace("\n", " "),
-            S_BODY
-        ))
+            _esc(sections["executive_summary"].replace("\n", " ")), S_BODY))
     else:
         story.append(Paragraph("No executive summary available.", S_META))
     story.append(Spacer(1, 0.35 * cm))
@@ -634,50 +725,62 @@ def write_pdf(commentary, df, flags, tok_in, tok_out):
     story.append(_variance_table(df))
     story.append(Spacer(1, 0.35 * cm))
 
+    # 3b. Twelve-month trend (Revenue by default; needs the full-year data). The
+    # single-period table shows one month; this gives that month its context.
+    if df_12mo is not None:
+        from src.trend_chart import build_trend_chart
+        import matplotlib.pyplot as _plt
+        story.append(_section_header("12-MONTH TREND"))
+        story.append(Spacer(1, 0.2 * cm))
+        _fig = build_trend_chart(df_12mo, "Revenue")
+        _imgbuf = BytesIO()
+        _fig.savefig(_imgbuf, format="png", dpi=150)
+        _plt.close(_fig)
+        _imgbuf.seek(0)
+        _iw, _ih = ImageReader(_imgbuf).getSize()
+        _imgbuf.seek(0)
+        story.append(Image(_imgbuf, width=PAGE_W, height=PAGE_W * _ih / _iw))
+        story.append(Spacer(1, 0.35 * cm))
+
     # 4. Line Item Commentary
     story.append(_section_header("LINE ITEM COMMENTARY"))
     story.append(Spacer(1, 0.2 * cm))
-
     if sections["line_items"]:
-        raw_lines = [
-            line.strip()
-            for line in sections["line_items"].split("\n")
-            if line.strip()
-        ]
-
+        raw_lines = [line.strip()
+                     for line in sections["line_items"].split("\n")
+                     if line.strip()]
         for line in raw_lines:
-            # Skip residual markdown artefacts
             if line.startswith("---") or line.startswith("##") or line == "--":
                 continue
-
             label, body = extract_label(line)
-
             if label is None:
-                story.append(Paragraph(line, S_BODY))
+                story.append(Paragraph(_esc(line), S_BODY))
                 continue
-
             if "[FLAG:" in body:
                 severity = "warning" if "LARGE_VARIANCE" in body else "error"
                 story.append(Spacer(1, 0.1 * cm))
                 story.append(KeepTogether([
                     Paragraph(
-                        '<font color="#2D6A9F"><b>{}</b></font>'.format(label),
+                        '<font color="#2D6A9F"><b>{}</b></font>'.format(_esc(label)),
                         ParagraphStyle("FLL", fontName="Helvetica-Bold",
                             fontSize=10, textColor=MID_BLUE,
-                            leading=14, spaceBefore=4)
-                    ),
+                            leading=14, spaceBefore=4)),
                     _flag_inline(body, severity),
                 ]))
             else:
                 story.append(Spacer(1, 0.1 * cm))
                 story.append(_line_item(label, body))
-
     story.append(Spacer(1, 0.35 * cm))
 
     # 5. Data Flags
     story.append(_section_header("DATA FLAGS"))
     story.append(Spacer(1, 0.2 * cm))
     story.append(_flag_summary_table(flags))
+
+    # Provenance: the flagging policy this run used (parity with the screen).
+    if policy_note_text:
+        story.append(Spacer(1, 0.15 * cm))
+        story.append(Paragraph(_esc(policy_note_text), S_META))
     story.append(Spacer(1, 0.4 * cm))
 
     # 6. Footer
@@ -686,31 +789,45 @@ def write_pdf(commentary, df, flags, tok_in, tok_out):
     story.append(Paragraph(
         "AI Variance Commentary Engine  ·  {}  ·  {}  ·  "
         "Human review: {}".format(
-            MODEL,
-            ts_log[:10],
-            "Required — {} flag(s) raised".format(len(flags)) if flags
-            else "Not required"
-        ),
-        S_META
-    ))
+            MODEL, ts_log[:10],
+            "Required - {} flag(s) raised".format(len(flags)) if flags
+            else "Not required"),
+        S_META))
 
+    buf = BytesIO()
     doc = SimpleDocTemplate(
-        str(pdf_path),
-        pagesize=A4,
-        rightMargin=2 * cm,
-        leftMargin=2 * cm,
-        topMargin=2 * cm,
-        bottomMargin=2 * cm,
-        title="Variance Commentary - {}".format(DEFAULT_PERIOD),
-        author="AI Variance Commentary Engine",
-    )
+        buf, pagesize=A4,
+        rightMargin=2 * cm, leftMargin=2 * cm,
+        topMargin=2 * cm, bottomMargin=2 * cm,
+        title="Variance Commentary - {}".format(period),
+        author="AI Variance Commentary Engine")
     doc.build(story)
+    return buf.getvalue()
 
-    # Update the audit log with the PDF path
+
+# =============================================================================
+# FUNCTION 3: Write the PDF to a file (CLI: build bytes -> write)
+# =============================================================================
+def write_pdf(commentary, df, flags, tok_in, tok_out, df_12mo=None):
+    """Format the commentary into a professional A4 PDF file. Builds the bytes
+    with build_pdf_bytes (shared with the web) and writes them to a timestamped
+    path. Returns pdf_path."""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    now     = datetime.now(timezone.utc)
+    ts_file = now.strftime("%Y-%m-%d_%H-%M-%S")
+    ts_log  = now.isoformat()
+
+    pdf_path = OUTPUT_DIR / "variance_commentary_{}.pdf".format(ts_file)
+
+    pdf_bytes = build_pdf_bytes(
+        commentary, df, flags, tok_in, tok_out,
+        DEFAULT_PERIOD, DEFAULT_ENTITY, ts_log, policy_note_text=None,
+        df_12mo=df_12mo)
+    pdf_path.write_bytes(pdf_bytes)
+
     update_audit_pdf(pdf_path)
-    
+
     print("[OK] PDF written")
     print("     PDF:  {}".format(pdf_path))
     print("     Size: {:.1f} KB".format(pdf_path.stat().st_size / 1024))
-
     return pdf_path
