@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from streamlit_app.lib.theme import inject_css
 from streamlit_app.lib.governance_flow import governance_flow_svg
+from streamlit_app.lib.governance_lifecycle import governance_lifecycle_svg
 from streamlit_app.lib.pipeline_flow import pipeline_flow_svg
 
 st.markdown(inject_css(), unsafe_allow_html=True)
@@ -76,6 +77,19 @@ st.info(
     "computes every variance and flags what needs a human; you review what is "
     "flagged. The intelligence is at the edges, and the numbers in the middle are "
     "deterministic and checkable.")
+
+st.markdown("#### The governance lifecycle")
+components.html(governance_lifecycle_svg(), height=310, scrolling=False)
+st.write(
+    "In a production deployment, review is the start of the record, not "
+    "the end. Once a reviewer approves the commentary, the approved version "
+    "becomes the immutable record: it is what everyone reads afterwards, "
+    "and it cannot be edited. A later change is issued as a new, "
+    "separately approved version, and the original approved commentary still "
+    "stands unchanged. This live demo stops at flagging for review; it "
+    "does not store or lock anything, so no data is retained. The "
+    "lifecycle diagram above shows the full model this design is built "
+    "towards.")
 
 # ── Part 2: the technical detail (engineer / evaluator) ──────────────────────
 st.markdown("---")
