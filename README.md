@@ -5,6 +5,8 @@ traditional finance workflows - taking a task that typically takes
 4-6 hours and completing it in under 15 seconds, with higher
 consistency and a built-in audit trail.
 
+**Live demo:** [ai-variance-commentary-engine.streamlit.app](https://ai-variance-commentary-engine.streamlit.app)
+
 ---
 
 ## What it does
