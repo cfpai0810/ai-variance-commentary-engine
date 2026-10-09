@@ -1,5 +1,5 @@
 # =============================================================================
-# data_loader.py — Layer 2: Data Loading and Validation
+# data_loader.py: Layer 2: Data Loading and Validation
 # =============================================================================
 # Responsibilities:
 #   - Load the P&L CSV and enforce schema and data types
@@ -146,7 +146,7 @@ def filter_to_period(df, period):
     """Return the rows for one period as a copy, leaving df unchanged.
 
     period may be a label ('March 2026') or an ISO date ('2026-03-31'). Matching
-    is on the 'YYYY-MM' prefix, so it is robust to the month-end day (28/30/31).
+    is on the 'YYYY-MM' prefix, so it is insensitive to the month-end day (28/30/31).
     Raises ValueError (listing available periods) if nothing matches.
     """
     prefix = _period_to_prefix(period)

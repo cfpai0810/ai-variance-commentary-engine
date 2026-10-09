@@ -1,5 +1,5 @@
 # =============================================================================
-# tests/test_pipeline.py — Project 1: AI Variance Commentary Engine
+# tests/test_pipeline.py : Project 1: AI Variance Commentary Engine
 # =============================================================================
 # Phase 5: VALIDATE — The 6-Case Test Protocol
 #

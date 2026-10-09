@@ -1,5 +1,5 @@
 # =============================================================================
-# step3_output_writer.py — Layer 4: Output Writing and Audit Trail
+# step3_output_writer.py: Layer 4: Output Writing and Audit Trail
 # =============================================================================
 # Responsibilities:
 #   - write_output(): write commentary to timestamped text file + audit log

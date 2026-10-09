@@ -1,6 +1,6 @@
 # AI Variance Commentary Engine
 
-A practical demonstration of how AI can be leveraged to transform
+A practical demonstration of how AI can be used to transform
 traditional finance workflows - taking a task that typically takes
 4-6 hours and completing it in under 15 seconds, with higher
 consistency and a built-in audit trail.
