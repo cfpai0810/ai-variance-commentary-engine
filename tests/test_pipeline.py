@@ -1333,3 +1333,28 @@ class TestUx:
         selectors, body = numeric.split("{", 1)
         assert "table, table *" in selectors
         assert '"tnum" 1' in body[:body.index("}")]
+
+
+# =============================================================================
+# STEP 3: the input hash is the same on every platform (H1)
+# =============================================================================
+
+import os
+
+LF_MARCH_HASH = "sha256:84df784503b6a4773a99b2ef8dc7ce9dddea9059aab15fc1059140ed7704ca4f"
+
+
+class TestPortableHash:
+
+    def test_h1_hash_input_ignores_the_platform_line_ending(self, monkeypatch):
+        # pandas writes os.linesep unless told otherwise, so Windows (CRLF) and
+        # Linux, where the live app runs (LF), used to hash the same March rows
+        # to two different values.
+        df = filter_to_period(
+            load_pnl(DOCS_DIR.parent / "data" / "sample_pnl.csv"), "March 2026")
+        for linesep in ("\r\n", "\n"):
+            monkeypatch.setattr(os, "linesep", linesep)
+            assert hash_input(df) == LF_MARCH_HASH
+        committed = json.loads(
+            (DOCS_DIR / "audit_log_sample.jsonl").read_text(encoding="utf-8"))
+        assert committed["input_hash"] == LF_MARCH_HASH

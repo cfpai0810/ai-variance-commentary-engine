@@ -256,7 +256,7 @@ Every run appends one record to `output/audit_log.jsonl`:
   "entity":          "Valencia Operations",
   "input_file":      "data/sample_pnl.csv",
   "input_rows":      7,
-  "input_hash":      "sha256:c3a41176d88fdd785d7f891b5c2a3e4f",
+  "input_hash":      "sha256:84df784503b6a4773a99b2ef8dc7ce9dddea9059aab15fc1059140ed7704ca4f",
   "output_file":     "output/variance_commentary_2026-07-04.txt",
   "pdf_file":        "output/variance_commentary_2026-07-04.pdf",
   "model":           "claude-sonnet-4-6",

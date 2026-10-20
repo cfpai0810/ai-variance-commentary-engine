@@ -557,8 +557,9 @@ def hash_input(df):
     the CLI writer and the web audit can share it. Hashes only the input columns
     in a fixed order, so the hash is stable regardless of any computed columns
     added downstream and identical for the CLI and the web on the same scoped
-    data (this proves data lineage)."""
-    canonical = df[INPUT_COLUMNS].to_csv(index=False)
+    data (this proves data lineage). The line ending is fixed at LF: pandas
+    otherwise uses os.linesep, which would give Windows a different hash."""
+    canonical = df[INPUT_COLUMNS].to_csv(index=False, lineterminator="\n")
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
