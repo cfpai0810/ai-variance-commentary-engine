@@ -33,3 +33,5 @@ typing_extensions==4.15.0
 tzdata==2026.2
 streamlit==1.60.0
 matplotlib==3.11.1
+# Streamlit 1.60 cannot serve images with starlette 1.8 or later
+starlette==1.7.0
