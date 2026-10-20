@@ -1358,3 +1358,44 @@ class TestPortableHash:
         committed = json.loads(
             (DOCS_DIR / "audit_log_sample.jsonl").read_text(encoding="utf-8"))
         assert committed["input_hash"] == LF_MARCH_HASH
+
+
+# =============================================================================
+# STEP 3: Home's button opens the worked example tab (UX2)
+# =============================================================================
+
+def _tab_sets(node):
+    """Every set of tabs under an AppTest node, in page order."""
+    found = []
+    for child in getattr(node, "children", {}).values():
+        if getattr(child, "type", None) == "tab_container":
+            found.append(child)
+        found.extend(_tab_sets(child))
+    return found
+
+
+class TestUx2ExampleTab:
+
+    def test_ux2_button_opens_the_example_tab(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        next(b for b in at.main.button if b.label == "See the worked example").click().run()
+        assert not at.exception
+        assert [t.label for t in at.tabs] == ["Run it yourself", "View a worked example"]
+        tab_sets = _tab_sets(at.main)
+        assert len(tab_sets) == 1
+        assert tab_sets[0].proto.tab_container.default_tab_index == 1
+        assert "vc_open_example" not in at.session_state     # a one-off flag
+
+    def test_ux2_sidebar_link_still_opens_the_first_tab(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        at.switch_page("views/variance_commentary.py").run()
+        assert not at.exception
+        assert _tab_sets(at.main)[0].proto.tab_container.default_tab_index == 0
+        # After the button has been used once, the sidebar link still opens the
+        # first tab: the flag does not outlive the visit it was set for.
+        at.switch_page("Home.py").run()
+        next(b for b in at.main.button if b.label == "See the worked example").click().run()
+        assert _tab_sets(at.main)[0].proto.tab_container.default_tab_index == 1
+        at.switch_page("Home.py").run()
+        at.switch_page("views/variance_commentary.py").run()
+        assert _tab_sets(at.main)[0].proto.tab_container.default_tab_index == 0

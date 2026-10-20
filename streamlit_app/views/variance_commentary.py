@@ -375,7 +375,11 @@ def _render_result(res, key_prefix):
 # =============================================================================
 # Tabs: live run, and the keyless worked example
 # =============================================================================
-tab_live, tab_example = st.tabs(["Run it yourself", "View a worked example"])
+# Home's "See the worked example" button opens this page on the example tab.
+_open_example = st.session_state.pop("vc_open_example", False)
+tab_live, tab_example = st.tabs(
+    ["Run it yourself", "View a worked example"],
+    default="View a worked example" if _open_example else None)
 
 with tab_live:
     # ── Scope controls ────────────────────────────────────────────────────────

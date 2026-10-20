@@ -39,8 +39,10 @@ def _home_page():
     )
 
     # One click to the worked example, which needs no key. It is the "View a
-    # worked example" tab on the Variance Commentary page.
+    # worked example" tab on the Variance Commentary page; the flag makes that
+    # page open on it.
     if st.button("See the worked example"):
+        st.session_state[OPEN_EXAMPLE_TAB] = True
         st.switch_page(VARIANCE_PAGE)
 
     # ── The key gate (sidebar): returns a per-session client or None ─────────
@@ -121,6 +123,9 @@ st.set_page_config(
 VIEWS_DIR = Path(__file__).resolve().parent / "views"
 VARIANCE_PAGE = st.Page(str(VIEWS_DIR / "variance_commentary.py"),
                         title="Variance Commentary", icon=":material/description:")
+# Set by Home's button and read once by the Variance Commentary page, which then
+# opens on its example tab. The sidebar link leaves it unset (the first tab).
+OPEN_EXAMPLE_TAB = "vc_open_example"
 
 pg = st.navigation([
     st.Page(_home_page, title="Home", icon=":material/home:"),
