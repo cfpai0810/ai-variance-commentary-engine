@@ -284,6 +284,9 @@ spread over several lines for reading:
 }
 ```
 
+The `input_hash` was recomputed on 20 October 2026 under the Unix line-ending
+standard. The original run, made on Windows, recorded a different value.
+
 The `input_hash` field (SHA256 of the scoped input rows for the period)
 proves which exact data produced which output. The same rows always
 produce the same hash, so a record can be checked by hashing the rows again.

@@ -119,8 +119,8 @@ st.write(
     "this version does not check the numbers in that wording, so read the table "
     "for figures. Everything numeric, the variances, the flags, the "
     "thresholds, the hash, is deterministic Python. This is what makes the "
-    "output reproducible and testable, and it means the model's known "
-    "weakness, arithmetic, is never on the critical path.")
+    "output reproducible and testable, and the model is not asked to "
+    "calculate: Python produces every figure in the table.")
 
 st.markdown("**One implementation, reused everywhere.**")
 st.write(

@@ -32,7 +32,7 @@ def _home_page():
         '<div class="sc-header">'
         '<h1>Variance Commentary</h1>'
         "<p>Turn a month's budget-versus-actual figures into review-ready "
-        'commentary, with every number computed by Python and every exception '
+        'commentary. Python computes the variances, and every exception is '
         'flagged before a person signs off.</p>'
         '</div>',
         unsafe_allow_html=True,
