@@ -1273,3 +1273,63 @@ class TestSidebarOnArrival:
                           wraps=streamlit.set_page_config) as spy:
             AppTest.from_file(str(APP_HOME), default_timeout=120).run()
         assert spy.call_args.kwargs["initial_sidebar_state"] == "auto"
+
+
+# =============================================================================
+# STEP 2 UX: the key gate in an expander, the Home button, tabular figures
+# (UX1, UX2, UX4)
+# =============================================================================
+
+from streamlit_app.lib.key_gate import GATE_LABEL, LIVE_ON, LIVE_OFF
+from streamlit_app.lib.theme import inject_css
+
+
+def _gate(at):
+    gates = [e for e in at.sidebar.expander if e.label == GATE_LABEL]
+    assert len(gates) == 1
+    return gates[0]
+
+
+class TestUx:
+
+    def test_ux1_key_gate_sits_in_a_closed_expander(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        gate = _gate(at)
+        assert not gate.proto.expanded
+        assert gate.text_input(key="byo_api_key").label == "Anthropic API key"
+        assert any("bills your Anthropic account" in c.value for c in gate.caption)
+        assert any("held in the server's memory" in m.value for m in gate.markdown)
+        # Directly below the expander, one line on live mode; no old heading.
+        assert [c.value for c in at.sidebar.caption][-1] == LIVE_OFF
+        assert not any("Run it yourself" in m.value for m in at.sidebar.markdown)
+
+    def test_ux1_live_mode_line_follows_the_key_across_pages(self):
+        at = _app_with_key_on_home()
+        assert [s.value for s in _gate(at).success] == [KEY_LOOKS_COMPLETE]
+        assert [c.value for c in at.sidebar.caption][-1] == LIVE_ON
+        at.switch_page("views/variance_commentary.py").run()
+        assert [c.value for c in at.sidebar.caption][-1] == LIVE_ON
+
+    def test_ux1_short_key_warning_is_inside_the_gate(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        at.sidebar.text_input(key="byo_api_key").input("sk-ant-short").run()
+        assert len(_gate(at).warning) == 1
+        assert [c.value for c in at.sidebar.caption][-1] == LIVE_OFF
+
+    def test_ux2_home_button_opens_the_worked_example_page(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        assert [b.label for b in at.main.button] == ["See the worked example"]
+        at.main.button[0].click().run()
+        assert not at.exception
+        assert [t.label for t in at.tabs] == ["Run it yourself", "View a worked example"]
+        assert any("saved example run for March 2026" in i.value for i in at.info)
+
+    def test_ux4_tabular_figures_only_where_numbers_line_up(self):
+        css = inject_css()
+        global_rule = css[css.index("html, body"):]
+        global_rule = global_rule[:global_rule.index("}")]
+        assert "tnum" not in global_rule and '"cv05" 1' in global_rule
+        numeric = css[css.index("Tabular figures only where numbers line up"):]
+        selectors, body = numeric.split("{", 1)
+        assert "table, table *" in selectors
+        assert '"tnum" 1' in body[:body.index("}")]

@@ -38,6 +38,11 @@ def _home_page():
         unsafe_allow_html=True,
     )
 
+    # One click to the worked example, which needs no key. It is the "View a
+    # worked example" tab on the Variance Commentary page.
+    if st.button("See the worked example"):
+        st.switch_page(VARIANCE_PAGE)
+
     # ── The key gate (sidebar): returns a per-session client or None ─────────
     client = render_key_gate()
     st.session_state["vc_live_client"] = client
@@ -114,13 +119,14 @@ st.set_page_config(
 # pages/ navigation never triggers and st.navigation() below is the sole nav
 # (with these explicit titles and this order, not filename-derived alphabetical).
 VIEWS_DIR = Path(__file__).resolve().parent / "views"
+VARIANCE_PAGE = st.Page(str(VIEWS_DIR / "variance_commentary.py"),
+                        title="Variance Commentary", icon=":material/description:")
 
 pg = st.navigation([
     st.Page(_home_page, title="Home", icon=":material/home:"),
     st.Page(str(VIEWS_DIR / "how_it_works.py"),
             title="How it works", icon=":material/menu_book:"),
-    st.Page(str(VIEWS_DIR / "variance_commentary.py"),
-            title="Variance Commentary", icon=":material/description:"),
+    VARIANCE_PAGE,
     st.Page(str(VIEWS_DIR / "your_own_data.py"),
             title="Your own data", icon=":material/upload_file:"),
     st.Page(str(VIEWS_DIR / "how_its_built.py"),
