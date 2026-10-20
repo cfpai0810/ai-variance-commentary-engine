@@ -1148,3 +1148,128 @@ class TestKeyGate:
         with patch.object(Messages, "create", stand_in_create):
             _click_generate(at)
         assert seen["api_key"] == TEST_KEY
+
+
+# =============================================================================
+# STEP 2 FIXES: flag wording, PDF text and glyphs, sidebar on arrival
+# (items 28, 35, 37, 53, 58)
+# =============================================================================
+
+import base64
+import re
+import zlib
+
+
+def _pdf_operators(pdf):
+    """The decoded page operators of a reportlab PDF (ASCII85, then Flate), so a
+    test can read which text and which glyph each cell printed."""
+    pattern = rb"/Filter \[ /ASCII85Decode /FlateDecode \] /Length (\d+)\s*>>\s*stream\r?\n"
+    streams = []
+    for found in re.finditer(pattern, pdf):
+        raw = pdf[found.end():found.end() + int(found.group(1))].strip()
+        if raw.endswith(b"~>"):
+            raw = raw[:-2]
+        streams.append(zlib.decompress(base64.a85decode(raw)).decode("latin-1"))
+    assert streams, "no page content found"
+    return "\n".join(streams)
+
+
+def _one_row(account, department, actual, budget):
+    return pd.DataFrame([{
+        "date": "2026-07-31", "account": account, "department": department,
+        "actual": float(actual), "budget": float(budget), "prior_year": float(budget),
+    }])
+
+
+class TestFlagDirection:
+
+    def test_item37_revenue_below_budget_reads_below_and_adverse(self):
+        # July's sample row: revenue 540,000 against a 1,200,000 budget.
+        _, flags = validate_and_flag(_one_row("Revenue", "Sales", 540000, 1200000))
+        assert flags == [
+            "LARGE_VARIANCE: Sales (-55.0% below budget, adverse, threshold 10%)"]
+
+    @pytest.mark.parametrize("account, actual, budget, words", [
+        ("Revenue", 1250000, 1100000, "+13.6% above budget, favourable"),
+        ("COGS", 480000, 400000, "+20.0% above budget, adverse"),
+        ("COGS", 300000, 400000, "-25.0% below budget, favourable"),
+    ])
+    def test_item37_direction_and_effect_follow_the_line(
+            self, account, actual, budget, words):
+        _, flags = validate_and_flag(_one_row(account, "Dept", actual, budget))
+        assert len(flags) == 1 and words in flags[0]
+        assert "over budget" not in flags[0]
+
+    def test_item37_july_prompt_carries_the_corrected_flag(self, full_df):
+        import src.step2_ai_engine as engine
+        july = filter_to_period(full_df, "July 2026")
+        july, flags = validate_and_flag(july)
+        july = calculate_variances(july, flags)
+        _, user_p = engine.build_prompt(july, flags, "July 2026", "Valencia Operations")
+        assert ("LARGE_VARIANCE: Sales (-55.0% below budget, adverse, threshold 10%)"
+                in user_p)
+        assert "over budget" not in user_p
+        # The flag still parses to its department, so the row stays uncomputed.
+        assert pd.isna(july[july["department"] == "Sales"].iloc[0]["variance_abs"])
+
+
+class TestPdfText:
+
+    def test_item28_model_text_with_markup_characters_builds_a_pdf(
+            self, loaded_pipeline):
+        df, flags = loaded_pipeline
+        commentary = (
+            "EXECUTIVE SUMMARY\nMargin fell <b & stayed < plan.\n\n"
+            "LINE ITEM COMMENTARY\n"
+            "Product | R&D Expense: Spend <b rose & stayed < plan.\n"
+            "Admin | Legal & Compliance: [FLAG: MISSING_ACTUAL <b & <]\n\n"
+            "DATA FLAGS\n- MISSING_ACTUAL: Admin <b & <")
+        pdf = build_pdf_bytes(
+            commentary, df, flags + ["ODD_FLAG: R&D <b & <"], 895, 1114,
+            "March 2026", "Valencia & <b Operations", "2026-03-31T00:00:00+00:00",
+            policy_note_text="Flagging policy: R&D 100% <b & <")
+        assert pdf[:5] == b"%PDF-"
+        # reportlab splits a run at "<" into two Tj strings; join them back.
+        ops = _pdf_operators(pdf).replace(") Tj (", "")
+        assert "Spend <b rose & stayed < plan." in ops
+        assert "R&D Expense" in ops and "R&D;" not in ops
+
+    def test_item35_pdf_failure_leaves_a_plain_message(self):
+        with patch("src.step3_output_writer.build_pdf_bytes",
+                   side_effect=RuntimeError("boom")):
+            at = AppTest.from_file(str(APP_HOME), default_timeout=120)
+            at.switch_page("views/variance_commentary.py").run()
+        assert not at.exception
+        captions = [c.value for c in at.caption]
+        assert ("The PDF is unavailable this session: Something went wrong running "
+                "that request. Please try again.") in captions
+        assert not any("boom" in c or "RuntimeError" in c for c in captions)
+        assert not at.get("download_button")
+        # The rest of the worked example still renders.
+        assert any("Executive summary" in m.value for m in at.markdown)
+
+    def test_item58_pdf_flag_marker_is_a_triangle(self):
+        ex = load_example()
+        pdf = build_pdf_bytes(
+            ex["commentary"], ex["df"], ex["flags"],
+            ex["input_tokens"], ex["output_tokens"],
+            ex["period"], ex["entity"], ex["generated_at"])
+        dingbats = re.search(rb"/BaseFont /ZapfDingbats /Name /(F\d+)", pdf)
+        glyphs = re.findall(
+            r"/{} [\d.]+ Tf [\d.]+ TL (?:[-\d. ]+ Td )?\((.)\) Tj".format(dingbats.group(1).decode()),
+            _pdf_operators(pdf))
+        # ZapfDingbats prints "s" as the solid triangle and "l" as the dot; "n" is
+        # its filled square, which is what the outline triangle used to print.
+        assert glyphs.count("s") == 4            # the four flagged March rows
+        assert glyphs.count("l") == 3            # the three computed rows
+        assert "n" not in glyphs
+
+
+class TestSidebarOnArrival:
+
+    def test_item53_sidebar_state_is_auto(self):
+        import streamlit
+        with patch.object(streamlit, "set_page_config",
+                          wraps=streamlit.set_page_config) as spy:
+            AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        assert spy.call_args.kwargs["initial_sidebar_state"] == "auto"

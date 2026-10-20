@@ -178,6 +178,13 @@ def _resolve_thresholds(thresholds):
     return policy
 
 
+def _is_revenue_line(account):
+    """True for an income line, where more than budget is good. Every other line
+    is a cost, where more than budget is bad. The same test step3's get_status
+    uses for the status colour, so the flag and the dot agree."""
+    return "revenue" in str(account).lower()
+
+
 def validate_and_flag(df, thresholds=None):
     """
     Scan every row for edge cases and return a list of flags.
@@ -233,14 +240,19 @@ def validate_and_flag(df, thresholds=None):
             flags.append(f"ZERO_ACTUAL: {dept} (budget was {budget:,.0f})")
             continue
 
-        # 5. Large variance - beyond this account's threshold, either direction
+        # 5. Large variance - beyond this account's threshold, either direction.
+        # Above or below comes from the sign of the variance; adverse or
+        # favourable also needs the line's polarity (revenue below budget is
+        # adverse, a cost above budget is adverse).
         variance_pct = (actual - budget) / budget
         thr = policy.get(acct, policy["_default"])
         if abs(variance_pct) > thr:
-            direction = "over budget" if variance_pct < 0 else "above budget"
+            above = actual > budget
+            direction = "above budget" if above else "below budget"
+            effect = "adverse" if above != _is_revenue_line(acct) else "favourable"
             flags.append(
                 f"LARGE_VARIANCE: {dept} "
-                f"({variance_pct:+.1%} {direction}, threshold {thr:.0%})"
+                f"({variance_pct:+.1%} {direction}, {effect}, threshold {thr:.0%})"
             )
 
     print(f"\n[OK] Validation complete")

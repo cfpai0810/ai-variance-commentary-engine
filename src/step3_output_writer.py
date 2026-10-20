@@ -15,7 +15,7 @@
 #
 # Key design decisions:
 #   - Em dash — for missing/unavailable numeric values (not "MISSING")
-#   - Green dot ● for favourable, red dot ● for unfavourable, △ for flagged
+#   - Green dot ● for favourable, red dot ● for unfavourable, ▲ for flagged
 #   - Revenue-aware status: cost overspend = red, cost underspend = green
 #   - All backgrounds use Table+TableStyle (not ParagraphStyle.backColor)
 #   - All HexColor objects defined once at module level, never double-wrapped
@@ -89,6 +89,12 @@ S_TBL_NUM = ParagraphStyle("TblNum", fontName="Helvetica", fontSize=9,
 
 # ── Display constants ─────────────────────────────────────────────────────────
 EM = "\u2014"   # — em dash: used for missing/unavailable numeric values
+
+# The outline triangle get_status returns for a flagged line (U+25B3) is in
+# neither Helvetica nor ZapfDingbats, so reportlab prints its missing-glyph
+# square. The PDF prints the solid triangle (U+25B2) from the standard
+# ZapfDingbats font instead; the screen keeps the outline triangle.
+PDF_FLAG_TRIANGLE = '<font name="ZapfDingbats">\u25b2</font>'
 
 
 # =============================================================================
@@ -320,7 +326,7 @@ def _variance_table(df):
     Numbers-first variance summary table.
 
     Columns: Department | Account | Actual | Budget | Variance | Var % | Status
-    Status:  ● green (FAV) | ● red (UNF) | △ amber (flagged)
+    Status:  ● green (FAV) | ● red (UNF) | ▲ amber (flagged, PDF_FLAG_TRIANGLE)
     Missing numeric values: — em dash in muted grey (not 'MISSING')
     Last column width computed to fill remaining page width exactly.
     """
@@ -356,7 +362,7 @@ def _variance_table(df):
             Paragraph(
                 '<font color="{}">{}</font>'.format(
                     stc.hexval() if hasattr(stc, "hexval") else "#000000",
-                    symbol
+                    PDF_FLAG_TRIANGLE if symbol == "\u25b3" else symbol
                 ),
                 ParagraphStyle("ST", fontName="Helvetica", fontSize=14,
                     textColor=stc, alignment=TA_CENTER, leading=14)
@@ -789,7 +795,7 @@ def build_pdf_bytes(commentary, df, flags, tok_in, tok_out, period, entity,
     story.append(Paragraph(
         "AI Variance Commentary Engine  ·  {}  ·  {}  ·  "
         "Human review: {}".format(
-            MODEL, ts_log[:10],
+            MODEL, _esc(ts_log[:10]),
             "Required - {} flag(s) raised".format(len(flags)) if flags
             else "Not required"),
         S_META))

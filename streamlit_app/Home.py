@@ -107,7 +107,7 @@ st.set_page_config(
     page_title="Variance Commentary",
     page_icon="•",
     layout="centered",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 # The view files live in a folder NOT named "pages", so Streamlit's automatic
