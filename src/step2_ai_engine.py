@@ -241,17 +241,19 @@ def call_claude(system_prompt, user_prompt, client=None):
             ]
         )
 
-    except anthropic.AuthenticationError:
+    # Each wrap keeps the SDK error as its cause (from exc), so the web's
+    # friendly_message can still tell a rejected key from a busy service.
+    except anthropic.AuthenticationError as exc:
         raise RuntimeError(
             "Authentication failed. Check that your ANTHROPIC_API_KEY "
             "is set correctly in your .env file and starts with sk-ant-."
-        )
+        ) from exc
 
-    except anthropic.RateLimitError:
+    except anthropic.RateLimitError as exc:
         raise RuntimeError(
             "Rate limit reached. Wait 60 seconds then run the script again. "
             "If this happens repeatedly, check your Anthropic usage dashboard."
-        )
+        ) from exc
 
     except anthropic.APIStatusError as e:
         raise RuntimeError(
@@ -259,13 +261,13 @@ def call_claude(system_prompt, user_prompt, client=None):
             "If this persists, report the error to Anthropic support.".format(
                 e.status_code, e.message
             )
-        )
+        ) from e
 
-    except anthropic.APIConnectionError:
+    except anthropic.APIConnectionError as exc:
         raise RuntimeError(
             "Could not connect to Anthropic API. "
             "Check your internet connection and try again."
-        )
+        ) from exc
 
     # Guard against empty response content
     if not response.content:

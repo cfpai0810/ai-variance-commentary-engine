@@ -1007,3 +1007,144 @@ class TestDeploymentPins:
         if version("streamlit").startswith("1.60."):
             major, minor = (int(part) for part in version("starlette").split(".")[:2])
             assert (major, minor) < (1, 8)
+
+
+# =============================================================================
+# STEP 2 FIXES: the key gate and failed model calls (items 2, 4, 17, 55)
+# =============================================================================
+
+import anthropic
+import httpx
+from streamlit.testing.v1 import AppTest
+from anthropic.resources.messages.messages import Messages
+from streamlit_app.lib.claude_client import NoKeyError
+from streamlit_app.lib.errors import (
+    MODEL_FAILURE_MESSAGES, KEY_LOOKS_COMPLETE,
+    failure_code, friendly_message, model_failure_message,
+)
+
+APP_HOME = Path(__file__).resolve().parent.parent / "streamlit_app" / "Home.py"
+TEST_KEY = "sk-ant-api03-" + "x" * 90       # a stand-in, never a real key
+
+# Every kind of failed model call, as (HTTP status or None for no connection, code).
+FAILURE_CASES = [
+    (401, "key_rejected"), (403, "key_forbidden"), (404, "model_not_found"),
+    (400, "bad_request"), (429, "rate_limited"), (500, "service_unavailable"),
+    (529, "service_unavailable"), (None, "service_unavailable"),
+]
+
+
+def _sdk_error(status):
+    """A stand-in SDK error for one HTTP status, built the way the SDK builds it.
+    No network: the request and response are local httpx objects."""
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    if status is None:
+        return anthropic.APIConnectionError(request=request)
+    error_class = {
+        400: anthropic.BadRequestError, 401: anthropic.AuthenticationError,
+        403: anthropic.PermissionDeniedError, 404: anthropic.NotFoundError,
+        429: anthropic.RateLimitError, 500: anthropic.InternalServerError,
+        529: anthropic.OverloadedError,
+    }[status]
+    return error_class("stand-in", response=httpx.Response(status, request=request),
+                       body=None)
+
+
+def _app_with_key_on_home():
+    """The app on Home with the stand-in key typed into the sidebar gate."""
+    at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+    at.sidebar.text_input(key="byo_api_key").input(TEST_KEY).run()
+    return at
+
+
+def _click_generate(at):
+    next(b for b in at.button if b.label == "Generate commentary").click().run()
+    return at
+
+
+class TestModelFailures:
+
+    @pytest.mark.parametrize("status, code", FAILURE_CASES)
+    def test_item17_each_failure_maps_to_one_plain_message(self, status, code):
+        exc = _sdk_error(status)
+        message = friendly_message(exc)
+        assert failure_code(exc) == code
+        assert message == model_failure_message(code)
+        assert message.endswith("Code: `{}`".format(code))
+        assert type(exc).__name__ not in message and "Error" not in message
+
+    @pytest.mark.parametrize("status, code", FAILURE_CASES)
+    def test_item55_engine_wrap_keeps_the_cause(self, status, code):
+        # call_claude wraps the SDK error in a RuntimeError; the cause must still
+        # reach friendly_message, or a rejected key reads "Something went wrong".
+        import src.step2_ai_engine as engine
+        stand_in = MagicMock()
+        stand_in.messages.create.side_effect = _sdk_error(status)
+        with pytest.raises(RuntimeError) as raised:
+            engine.call_claude("system", "user", client=stand_in)
+        assert failure_code(raised.value) == code
+        assert friendly_message(raised.value) == model_failure_message(code)
+
+    def test_item17_no_misleading_wording(self):
+        for code in ("bad_request", "model_not_found"):
+            assert "usually temporary" not in model_failure_message(code)
+        assert "claude-sonnet-4-6" in model_failure_message("model_not_found")
+        generic = friendly_message(ValueError("boom"))
+        assert generic == "Something went wrong running that request. Please try again."
+        no_key = friendly_message(NoKeyError("No API key provided."))
+        assert "sidebar" in no_key and "above" not in no_key
+        every_message = list(MODEL_FAILURE_MESSAGES.values()) + [generic, no_key]
+        for message in every_message:
+            assert "example prompts" not in message
+            assert chr(0x2014) not in message and chr(0x2013) not in message
+
+    def test_item17_rejected_key_on_the_page_reads_plainly(self):
+        at = _app_with_key_on_home()
+        at.switch_page("views/variance_commentary.py").run()
+        with patch.object(Messages, "create", side_effect=_sdk_error(401)):
+            _click_generate(at)
+        errors = [e.value for e in at.error]
+        assert errors == [model_failure_message("key_rejected")]
+        assert not at.exception
+
+
+class TestKeyGate:
+
+    def test_item2_privacy_wording(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        box = at.sidebar.text_input(key="byo_api_key")
+        assert box.help == ("Held in the server's memory for this session only. "
+                            "Never stored, never logged.")
+        notes = " ".join(m.value for m in at.sidebar.markdown)
+        assert ("Your key is held in the server's memory for your session only, "
+                "used to make the call, and never stored or logged.") in notes
+        assert "browser" not in notes
+        source = (APP_HOME.parent / "lib" / "key_gate.py").read_text(encoding="utf-8")
+        assert "never stored server-side" not in source
+        assert "browser" not in source
+
+    def test_item2_success_line_does_not_claim_the_key_works(self):
+        at = _app_with_key_on_home()
+        assert [s.value for s in at.sidebar.success] == [KEY_LOOKS_COMPLETE]
+
+    def test_item4_key_entered_on_home_stays_live_on_the_model_page(self):
+        at = _app_with_key_on_home()
+        assert isinstance(at.session_state["vc_live_client"], anthropic.Anthropic)
+
+        at.switch_page("views/variance_commentary.py").run()
+        assert not at.exception
+        assert at.sidebar.text_input(key="byo_api_key").value == TEST_KEY
+        assert [s.value for s in at.sidebar.success] == [KEY_LOOKS_COMPLETE]
+        assert not any("Paste your Anthropic API key" in i.value for i in at.info)
+
+        # Generate reaches the model call with a client built from that key.
+        # The stand-in replaces the SDK's create, so nothing goes on the network.
+        seen = {}
+
+        def stand_in_create(resource, **kwargs):
+            seen["api_key"] = resource._client.api_key
+            raise _sdk_error(500)
+
+        with patch.object(Messages, "create", stand_in_create):
+            _click_generate(at)
+        assert seen["api_key"] == TEST_KEY
