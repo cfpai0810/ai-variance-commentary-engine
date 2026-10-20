@@ -91,7 +91,7 @@ src/
   step3_output_writer.py      Write text file, PDF report, and audit log
 
 data/
-  sample_pnl.csv              Synthetic test data with all edge cases
+  sample_pnl.csv              Synthetic 12-month test data
 
 docs/
   sample_output.txt           Example text commentary output
@@ -99,16 +99,17 @@ docs/
 
 output/                       Generated files (gitignored)
 tests/
-  test_pipeline.py            55 assertions, 6 test cases, no API calls
+  test_pipeline.py            147 tests, no API calls
 ```
 
 ---
 
 ## Architecture
 
-**Core design rule:** Python calculates all numbers. Claude only
-interprets and narrates. This makes every figure in the output
-traceable to a specific calculation - not to the language model.
+**Core design rule:** Python produces every reported figure; the model
+writes the wording around it; this version does not check the numbers
+in that wording, so read the table for figures. Each figure in the
+table is traceable to a specific calculation, not to the language model.
 
 ```
 P&L CSV input
@@ -177,7 +178,9 @@ column order does not matter):
 | `budget` | The budget figure | A number; blank or zero is flagged. |
 | `prior_year` | The prior-year figure | A number, for the year-on-year comparison. |
 
-See `data/sample_pnl.csv` for a working example with all five edge-case rows.
+See `data/sample_pnl.csv` for a working example. Across its twelve months it
+raises three of the five flags (MISSING_ACTUAL, ZERO_ACTUAL and LARGE_VARIANCE);
+MISSING_BUDGET and ZERO_BUDGET do not occur in it.
 
 ---
 
@@ -246,22 +249,24 @@ When `requires_review` is `true`, the reviewer should:
 
 ## Audit trail
 
-Every run appends one record to `output/audit_log.jsonl`:
+Every run appends one record to `output/audit_log.jsonl`. This is the record
+of the committed sample run of 8 August 2026 (`docs/audit_log_sample.jsonl`),
+spread over several lines for reading:
 
 ```json
 {
-  "run_id":          "2026-07-04T07:49:09+00:00",
+  "run_id":          "2026-08-08T16:36:51.876311+00:00",
   "project":         "variance-commentary-engine",
   "period":          "March 2026",
   "entity":          "Valencia Operations",
   "input_file":      "data/sample_pnl.csv",
   "input_rows":      7,
   "input_hash":      "sha256:84df784503b6a4773a99b2ef8dc7ce9dddea9059aab15fc1059140ed7704ca4f",
-  "output_file":     "output/variance_commentary_2026-07-04.txt",
-  "pdf_file":        "output/variance_commentary_2026-07-04.pdf",
+  "output_file":     "output/variance_commentary_2026-08-08_16-36-51.txt",
+  "pdf_file":        "output/variance_commentary_2026-08-08_16-36-51.pdf",
   "model":           "claude-sonnet-4-6",
-  "input_tokens":    895,
-  "output_tokens":   1128,
+  "input_tokens":    955,
+  "output_tokens":   1073,
   "stop_reason":     "end_turn",
   "flags_raised":    [
     "LARGE_VARIANCE: Sales (+13.6% above budget, threshold 10%)",
@@ -281,19 +286,19 @@ Every run appends one record to `output/audit_log.jsonl`:
 
 The `input_hash` field (SHA256 of the scoped input rows for the period)
 proves which exact data produced which output. The same rows always
-produce the same hash, making the audit trail tamper-evident.
+produce the same hash, so a record can be checked by hashing the rows again.
 
 ---
 
 ## Test suite
 
-55 assertions across 6 test cases. No real API calls. Runs in under 2 seconds:
+147 tests. No real API calls:
 
 ```bash
 pytest tests/test_pipeline.py -v
 ```
 
-The 6 test cases follow the standard validation protocol:
+The first six test classes follow the standard validation protocol:
 happy path, favourable result, unfavourable result,
 missing value, zero actual, and large variance.
 
@@ -301,8 +306,9 @@ missing value, zero actual, and large variance.
 
 ## Tech stack
 
-Python 3.11 · pandas · Anthropic Claude API · python-dotenv ·
-reportlab · hashlib · pytest
+Python (tested on Python 3.13 and 3.14; numpy 2.5 needs Python 3.12 or
+later) · pandas · Anthropic Claude API · Streamlit · matplotlib ·
+python-dotenv · reportlab · hashlib · pytest
 
 ---
 

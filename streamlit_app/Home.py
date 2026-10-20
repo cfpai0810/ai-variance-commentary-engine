@@ -91,11 +91,11 @@ def _home_page():
     st.write(
         "The worked example runs with no key. To generate commentary yourself, "
         "you supply your own Anthropic API key, and each run bills your own "
-        "Anthropic account a small amount (a single period is well under one US "
-        "cent in practice; the tool shows an estimate for every run). The key is "
-        "used only for your session and is not stored. On the web the data stays "
-        "sample-only; to work on your own figures, run the project locally from "
-        "GitHub.")
+        "Anthropic account a small amount (a single period costs about 1.9 US "
+        "cents at the configured rates; the tool shows an estimate for every "
+        "run). The key is used only for your session and is not stored. On the "
+        "web the data stays sample-only; to work on your own figures, run the "
+        "project locally from GitHub.")
 
     # ── Where to start ───────────────────────────────────────────────────────
     st.markdown("#### Where to start")

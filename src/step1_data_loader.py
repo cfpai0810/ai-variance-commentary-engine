@@ -272,8 +272,9 @@ def calculate_variances(df, flags):
     """
     Add variance columns to the DataFrame for every valid row.
 
-    CRITICAL DESIGN RULE: Python calculates all numbers.
-    Claude only interprets and narrates. The LLM never does arithmetic.
+    CRITICAL DESIGN RULE: Python produces every reported figure; the
+    model writes the wording around it; this version does not check the
+    numbers in that wording, so read the table for figures.
 
     Three calculations per row:
     - variance_abs:   actual - budget

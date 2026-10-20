@@ -39,12 +39,12 @@ st.markdown("---")
 st.markdown("#### Why you can trust the numbers")
 
 st.write(
-    "The tool never lets the language model do arithmetic. That is the whole "
-    "idea. A language model is good at reading figures and describing them in "
-    "clear prose. It is not a calculator, and it is not asked to be one. Every "
-    "variance you see is computed by deterministic Python, the same way a "
-    "spreadsheet would compute it, and the same input always produces the same "
-    "output.")
+    "Python produces every reported figure, and the language model writes the "
+    "wording around it. That is the whole idea. A language model is good at "
+    "reading figures and describing them in clear prose. It is not a "
+    "calculator, and it is not asked to be one. Every variance you see is "
+    "computed by deterministic Python, the same way a spreadsheet would "
+    "compute it, and the same input always produces the same output.")
 
 st.markdown("**The work happens in separated layers.**")
 components.html(governance_flow_svg(), height=300, scrolling=False)
@@ -52,8 +52,9 @@ st.write(
     "You pick a period; Python scopes the data to that month, computes every "
     "variance, and checks each line against its review threshold; the model reads "
     "the computed figures and writes the commentary; and Python decides whether "
-    "the run needs a human to review it. The model never sees a number it is "
-    "allowed to change, and it never produces one.")
+    "the run needs a human to review it. Python produces every reported figure; "
+    "the model writes the wording around it; this version does not check the "
+    "numbers in that wording, so read the table for figures.")
 
 st.markdown("**Anything the data cannot support is flagged, not explained away.**")
 st.write(
@@ -113,13 +114,13 @@ st.write(
 st.markdown("**The AI boundary is the important design choice.**")
 st.write(
     "The language model appears in exactly one stage: it is handed the computed "
-    "figures and the flags, and asked only to write the commentary. It is "
-    "explicitly told not to calculate anything, and it has nothing to calculate "
-    "with, because the numbers are already final by the time it sees them. "
-    "Everything numeric, the variances, the flags, the thresholds, the hash, is "
-    "deterministic Python. This is what makes the output reproducible and "
-    "testable, and it means the model's known weakness, arithmetic, is never on "
-    "the critical path.")
+    "figures and the flags, and asked only to write the commentary. Python "
+    "produces every reported figure; the model writes the wording around it; "
+    "this version does not check the numbers in that wording, so read the table "
+    "for figures. Everything numeric, the variances, the flags, the "
+    "thresholds, the hash, is deterministic Python. This is what makes the "
+    "output reproducible and testable, and it means the model's known "
+    "weakness, arithmetic, is never on the critical path.")
 
 st.markdown("**One implementation, reused everywhere.**")
 st.write(

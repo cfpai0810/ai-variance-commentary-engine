@@ -6,7 +6,7 @@
 # Run from the project root with (venv) active:
 #   pytest tests/test_pipeline.py -v
 #
-# All 6 test cases from the methodology:
+# The six protocol cases from the methodology are the first six test classes:
 #   1. Happy path          — clean data, full pipeline, audit log correct
 #   2. Favourable variance — green dot for revenue over, cost under
 #   3. Unfavourable variance — red dot for cost over, revenue under
@@ -14,8 +14,8 @@
 #   5. Zero actual         — Technology actual=0, ZERO_ACTUAL not LARGE_VARIANCE
 #   6. Large variance      — Product +122.5%, LARGE_VARIANCE flag, skipped
 #
-# No real API calls are made. The Claude API call is mocked so the
-# tests run in under 5 seconds and cost nothing.
+# No real API calls are made. Where a test reaches the Claude call, a
+# stand-in takes its place, so the tests need no key and cost nothing.
 # =============================================================================
 
 import json
