@@ -99,7 +99,7 @@ docs/
 
 output/                       Generated files (gitignored)
 tests/
-  test_pipeline.py            147 tests, no API calls
+  test_pipeline.py            152 tests, no API calls
 ```
 
 ---
@@ -295,9 +295,10 @@ produce the same hash, so a record can be checked by hashing the rows again.
 
 ## Test suite
 
-147 tests. No real API calls:
+152 tests. No real API calls:
 
 ```bash
+pip install -r requirements-dev.txt
 pytest tests/test_pipeline.py -v
 ```
 
