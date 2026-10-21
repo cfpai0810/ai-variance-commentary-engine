@@ -53,7 +53,8 @@ def _home_page():
         "review threshold. A flagged line shows no variance.\n"
         "- Drafts the commentary from those figures with the model (Claude, via "
         "the Anthropic API) and your own key.\n"
-        "- Produces a PDF of the figures, the flags and the commentary.")
+        "- Produces a PDF of the figures, the flags and the commentary, a DRAFT "
+        "until a named reviewer signs it.")
 
     st.markdown("#### The governance promise")
     st.markdown(
@@ -64,8 +65,8 @@ def _home_page():
         "- **The model describes.** It writes about figures it was given and "
         "cannot change them. This version does not check the numbers in its "
         "wording.\n"
-        "- **A person reviews.** This version has no sign-off step on the web, so "
-        "nothing here is signed or final.")
+        "- **The reviewer signs.** Nothing is final until a named reviewer reads "
+        "it and signs.")
 
     st.markdown("#### Pages")
     st.page_link(HOW_IT_WORKS, label="How it works: what gets flagged, the "

@@ -7,6 +7,7 @@
 #
 # PDF layout:
 #   1. Cover header        — entity, period, run metadata
+#   1b. Sign-off status    (the live web result only: DRAFT, or FINAL and who)
 #   2. Executive Summary   — 3-sentence narrative
 #   3. Variance Summary    — numbers-first table with dot/triangle status
 #   4. Line Item Commentary — clean labels + body + inline flag boxes
@@ -86,6 +87,8 @@ S_TBL_HDR = ParagraphStyle("TblHdr", fontName="Helvetica-Bold", fontSize=9,
                 textColor=DARK_BLUE, leading=12)
 S_TBL_NUM = ParagraphStyle("TblNum", fontName="Helvetica", fontSize=9,
                 textColor=BODY_DARK, leading=12, alignment=TA_RIGHT)
+S_STATUS  = ParagraphStyle("Status", fontName="Helvetica-Bold", fontSize=10,
+                textColor=DARK_BLUE, leading=14)
 
 # ── Display constants ─────────────────────────────────────────────────────────
 EM = "\u2014"   # — em dash: used for missing/unavailable numeric values
@@ -699,7 +702,7 @@ def update_audit_pdf(pdf_path):
 # FUNCTION 2: Build the PDF as bytes (shared), then write it (CLI)
 # =============================================================================
 def build_pdf_bytes(commentary, df, flags, tok_in, tok_out, period, entity,
-                    ts_log, policy_note_text=None, df_12mo=None):
+                    ts_log, policy_note_text=None, df_12mo=None, status_line=None):
     """Build the A4 PDF and return it as bytes. One layout, two sinks: the CLI
     write_pdf writes these bytes to disk; the web serves them from a download
     button. No file is written here.
@@ -707,7 +710,10 @@ def build_pdf_bytes(commentary, df, flags, tok_in, tok_out, period, entity,
     commentary is dash-normalised (the same text shown on screen). period, entity
     and ts_log identify the run on the cover. policy_note_text, when given, adds a
     one-line flagging-policy note under DATA FLAGS for provenance parity with the
-    screen."""
+    screen. status_line, when given, is the live web result's sign-off status
+    (pdf_status_line in src/signoff.py: DRAFT, or FINAL with the reviewer's name
+    and time), printed under the cover. The CLI and the worked example pass none,
+    so their PDFs print as they always have."""
     commentary = _normalise_dashes(commentary)
     sections = parse_sections(commentary)
     story = []
@@ -715,6 +721,12 @@ def build_pdf_bytes(commentary, df, flags, tok_in, tok_out, period, entity,
     # 1. Cover
     story.append(_cover_block(period, entity, ts_log, tok_in, tok_out, len(flags)))
     story.append(Spacer(1, 0.4 * cm))
+
+    # 1b. Sign-off status (the live web result only), escaped: it can carry
+    # the reviewer's name as typed.
+    if status_line:
+        story.append(Paragraph(_esc(status_line), S_STATUS))
+        story.append(Spacer(1, 0.3 * cm))
 
     # 2. Executive Summary
     story.append(_section_header("EXECUTIVE SUMMARY"))

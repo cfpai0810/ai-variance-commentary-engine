@@ -11,9 +11,13 @@
 #
 # Two tabs, one renderer: "View a worked example" (a saved real March run, no
 # key), first and open on arrival, and "Run it yourself" (live, needs a key).
-# Both call _render_result, so the example looks exactly like a live run.
+# Both call _render_result, so the example looks exactly like a live run. The
+# live result then ends with the Sign-off section (the rule in src/signoff.py,
+# after Project 6), which carries its DRAFT or FINAL PDF.
 # =============================================================================
 
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -27,7 +31,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from streamlit_app.lib.theme import (
-    inject_css, header_html, DARK_BLUE, MID_BLUE, LIGHT_BLUE, RULE, NEAR_WHITE,
+    inject_css, header_html, status_chip_html,
+    DARK_BLUE, MID_BLUE, LIGHT_BLUE, RULE, NEAR_WHITE,
     AMBER, AMBER_BG, FLAG_RED, MUTED, BODY_DARK,
 )
 from streamlit_app.lib.key_gate import render_key_gate
@@ -50,6 +55,10 @@ from src.step3_output_writer import (          # reuse tested helpers, never rec
     hash_input, build_pdf_bytes, parse_sections, extract_label,
 )
 from src.trend_chart import build_trend_chart   # shared 12-month trend builder
+from src.signoff import (
+    FINAL, SCOPE_NOTE, STALE_CAPTION, WORD_HELP, WORD_LABEL,
+    SignOff, pdf_status_line, sign_off,
+)
 from matplotlib import pyplot as plt
 
 st.markdown(inject_css(), unsafe_allow_html=True)
@@ -298,10 +307,12 @@ def _commentary_html(commentary, df):
     return style + "<div class='vc-comm'>" + "".join(parts) + "</div>"
 
 
-def _render_result(res, key_prefix):
+def _render_result(res, key_prefix, download=True):
     """Render one result dict (live OR example) with the shared surfaces, so the
     two paths look identical: period/entity, policy note, review panel, variance
-    table, commentary, and a PDF download. Pure rendering; no API call.
+    table, commentary, and a PDF download. Pure rendering; no API call. The live
+    result passes download=False: its PDF sits in the Sign-off section, as the
+    DRAFT or the FINAL PDF.
 
     Order: what happened (review status, then the figures) before what it means
     (the commentary), so a reviewer can check the words against the numbers."""
@@ -352,21 +363,133 @@ def _render_result(res, key_prefix):
                 unsafe_allow_html=True)
     st.caption(format_cost(res["input_tokens"], res["output_tokens"]))
 
-    # 4. PDF download, built from this result (no fresh API call, no file written)
+    # 4. PDF download (the worked example's; the live one is in Sign-off)
+    if download:
+        _pdf_download(res, "Download PDF", "vc_pdf_" + key_prefix)
+
+
+def _pdf_download(res, label, key, status_line=None):
+    """The PDF download for one result, built from it (no fresh API call, no
+    file written). status_line is the live result's sign-off status, printed
+    near the top; the worked example passes none and prints as it always has."""
     try:
         pdf_bytes = build_pdf_bytes(
             res["commentary"], res["df"], res["flags"],
             res["input_tokens"], res["output_tokens"],
             res["period"], res["entity"], res["generated_at"],
             policy_note_text=policy_note(res["policy"]),
-            df_12mo=full_df)
+            df_12mo=full_df, status_line=status_line)
         st.download_button(
-            "Download PDF", data=pdf_bytes,
+            label, data=pdf_bytes,
             file_name="variance_commentary_{}.pdf".format(
                 res["period"].replace(" ", "_")),
-            mime="application/pdf", key="vc_pdf_" + key_prefix)
+            mime="application/pdf", key=key)
     except Exception as exc:
         st.caption("The PDF is unavailable this session: " + friendly_message(exc))
+
+
+# =============================================================================
+# Sign-off (after Project 6: the rule and its messages live in src/signoff.py)
+# =============================================================================
+# The section belongs to one result: the live result it was drawn for (its
+# fingerprint). A sign-off stands only for that result. A new Generate is a new
+# result, so a new DRAFT: the name stays filled in and SIGN is typed again.
+_SIGNOFF_FOR_KEY = "vc_signoff_for"     # the result the section is for
+_SIGNED_KEY = "vc_signed_off"           # the SignOff that stands for it
+_REVIEWER_KEY = "vc_reviewer"
+_SIGN_KEY = "vc_sign"
+_REFUSAL_KEY = "vc_signoff_refusal"     # the last refusal, shown once
+
+
+def _fingerprint(res):
+    """The live result as its PDF prints it, as one hash: the run (its time and
+    the hash of its input rows), the period, the review thresholds, the flags,
+    the commentary and the token counts. Generate is the only way to change
+    any of them, and each Generate is a new run with its own time."""
+    printed = {name: res[name] for name in (
+        "generated_at", "input_hash", "period", "entity", "policy", "flags",
+        "commentary", "input_tokens", "output_tokens", "stop_reason")}
+    text = json.dumps(printed, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _stale(res, period, policy):
+    """The period or the review thresholds on screen no longer match the ones
+    the result was made from: Generate has not been pressed since they changed.
+    The key is not an input of the result, so a new key on its own changes
+    nothing here; only a new Generate does."""
+    return period != res["period"] or policy != res["policy"]
+
+
+def _sign_off(run, flags):
+    """The Sign off button (on_click, as in Project 6). The rule decides; the
+    page keeps the sign-off and adds it to this run's session audit row, with
+    the flags shown at sign-off."""
+    signed, refusal = sign_off(
+        st.session_state.get(_REVIEWER_KEY), st.session_state.get(_SIGN_KEY),
+        already_signed=_SIGNED_KEY in st.session_state)
+    if refusal:
+        st.session_state[_REFUSAL_KEY] = refusal
+        return
+    st.session_state[_SIGNED_KEY] = signed
+    for record in st.session_state.vc_audit:
+        if (record["generated_at"], record["input_hash"]) == run:
+            record.update(signed.record(flags))
+            break
+
+
+def _render_signoff(res, stale):
+    """The Sign-off section for the live result: DRAFT with the boxes, the
+    button and the DRAFT PDF, or FINAL, read only, with the FINAL PDF."""
+    fingerprint = _fingerprint(res)
+    if st.session_state.get(_SIGNOFF_FOR_KEY) != fingerprint:
+        # A new result is a new DRAFT. The name stays filled in; SIGN must be
+        # typed again. Done before the boxes are drawn, so they can be set.
+        signed = st.session_state.pop(_SIGNED_KEY, None)
+        if signed is not None:
+            st.session_state[_REVIEWER_KEY] = signed.name
+        st.session_state[_SIGN_KEY] = ""
+        st.session_state[_SIGNOFF_FOR_KEY] = fingerprint
+    signed = st.session_state.get(_SIGNED_KEY)
+    refusal = st.session_state.pop(_REFUSAL_KEY, None)
+
+    st.markdown("#### Sign-off")
+    st.markdown(
+        "Signing says you have read the result against the figures above. The "
+        "figures come from Python. This version does not check the numbers in "
+        "the model's wording.")
+
+    if signed is not None:
+        st.markdown("{}&nbsp; {}".format(
+            status_chip_html("final"), _html.escape(signed.line)),
+            unsafe_allow_html=True)
+        if refusal:
+            st.warning(refusal)
+        _pdf_download(res, "Download the FINAL PDF", "vc_pdf_live",
+                      pdf_status_line(signed))
+        st.caption(SCOPE_NOTE)
+        return
+
+    st.markdown(status_chip_html("draft"), unsafe_allow_html=True)
+    flags = list(res["flags"])
+    if flags:
+        st.markdown("Outstanding before you sign:")
+        st.markdown("\n".join("{}. {}".format(i, flag)
+                              for i, flag in enumerate(flags, start=1)))
+    else:
+        st.markdown("Nothing is outstanding.")
+    st.text_input("Reviewer name", key=_REVIEWER_KEY)
+    st.text_input(WORD_LABEL, key=_SIGN_KEY, help=WORD_HELP)
+    st.button("Sign off", key="vc_signoff", type="primary", on_click=_sign_off,
+              args=((res["generated_at"], res["input_hash"]), flags),
+              disabled=stale)
+    if stale:
+        st.caption(STALE_CAPTION)
+    st.caption(SCOPE_NOTE)
+    if refusal:
+        st.warning(refusal)
+    _pdf_download(res, "Download the DRAFT PDF", "vc_pdf_live",
+                  pdf_status_line(None))
 
 
 # =============================================================================
@@ -485,7 +608,10 @@ with tab_live:
 
     if st.session_state.vc_result:
         st.divider()
-        _render_result(st.session_state.vc_result, "live")
+        _render_result(st.session_state.vc_result, "live", download=False)
+        _render_signoff(st.session_state.vc_result, _stale(
+            st.session_state.vc_result, period,
+            build_policy_from_ui(percent_map, default_percent)))
 
     # ── Session audit (this tab only: your live runs this session) ───────────
     if st.session_state.vc_audit:
@@ -510,6 +636,13 @@ with tab_live:
                         "yes" if rec["requires_review"] else "no",
                         rec["input_tokens"], rec["output_tokens"],
                         rec["stop_reason"]))
+                if rec.get("status") == FINAL:      # SignOff.record, kept at sign-off
+                    signed = SignOff(rec["signed_off_by"],
+                                     datetime.fromisoformat(rec["signed_off_at"]))
+                    st.markdown("{}&nbsp; {} Flags acknowledged at sign-off: {}.".format(
+                        status_chip_html("final"), _html.escape(signed.line),
+                        len(rec["acknowledged_at_sign_off"])),
+                        unsafe_allow_html=True)
                 st.caption(format_cost(rec["input_tokens"], rec["output_tokens"]))
                 st.divider()
 

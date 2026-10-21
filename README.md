@@ -43,7 +43,16 @@ The PDF report contains five sections:
 - Line item commentary - one paragraph per department with root
   cause analysis and recommended action
 - Data flags action table - each flagged row with a specific
-  action required before the accounts can be signed off
+  follow-up action
+
+On the live demo the PDF also carries a status line under the cover:
+"DRAFT: not signed off" until a named reviewer types their name and the
+word SIGN in the page's Sign-off section, then "FINAL: signed off by",
+the name and the time (UTC). The flags are listed there as outstanding
+and recorded as acknowledged at sign-off; they do not block it. The
+sign-off is kept for the session only, and the name is not verified.
+The PDF that `python main.py` writes, and the worked example's, have no
+status line.
 
 ---
 
@@ -89,6 +98,7 @@ src/
   step1_data_loader.py        Load CSV, validate rows, calculate variances
   step2_ai_engine.py          Build prompts, call Claude API
   step3_output_writer.py      Write text file, PDF report, and audit log
+  signoff.py                  The sign-off rule: a named reviewer types SIGN (DRAFT or FINAL)
 
 data/
   sample_pnl.csv              Synthetic 12-month test data
@@ -99,7 +109,8 @@ docs/
 
 output/                       Generated files (gitignored)
 tests/
-  test_pipeline.py            160 tests, no API calls
+  test_pipeline.py            171 tests, no API calls
+  test_signoff.py             8 tests: the sign-off rule
 ```
 
 ---
@@ -296,11 +307,11 @@ produce the same hash, so a record can be checked by hashing the rows again.
 
 ## Test suite
 
-160 tests. No real API calls:
+179 tests. No real API calls:
 
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/test_pipeline.py -v
+pytest tests -v
 ```
 
 The first six test classes follow the standard validation protocol:

@@ -1560,3 +1560,385 @@ class TestStep5aLook:
         pages, page_config = _navigation()
         tool_page = next(page for page in pages if page.url_path == "variance_commentary")
         assert page_config["page_icon"] == tool_page.icon == ":material/bar_chart:"
+
+
+# =============================================================================
+# STEP 5b: the Sign-off section, after Project 6 (the rule in src/signoff.py)
+# =============================================================================
+
+from types import SimpleNamespace
+
+from src.signoff import (
+    ALREADY_SIGNED, NAME_LIMIT, NAME_REFUSAL, SCOPE_NOTE, STALE_CAPTION,
+    WORD_HELP, WORD_LABEL, WORD_REFUSAL, clean_name, pdf_name, sign_off, when_text,
+)
+
+_SENTENCE = ("Signing says you have read the result against the figures above. The "
+             "figures come from Python. This version does not check the numbers in "
+             "the model's wording.")
+_DRAFT_CHIP = '<span class="sc-status draft">DRAFT</span>'
+_FINAL_CHIP = '<span class="sc-status final">FINAL</span>'
+_REVIEW_WARNING = "Human review required before this commentary is used."
+_MARCH_FLAGS = [
+    "LARGE_VARIANCE: Sales (+13.6% above budget, favourable, threshold 10%)",
+    "ZERO_ACTUAL: Technology (budget was 45,000)",
+    "MISSING_ACTUAL: Admin",
+    "LARGE_VARIANCE: Product (+122.5% above budget, adverse, threshold 100%)",
+]
+
+
+def _pdf_text(pdf):
+    """The PDF's text runs in page order, string escapes undone (an octal code
+    such as \\351 is a character such as é), joined by single spaces."""
+    def unescape(match):
+        code = match.group(1)
+        return chr(int(code, 8)) if code[0] in "01234567" else code
+    runs = re.findall(r"\(((?:[^()\\]|\\.)*)\)\s*Tj", _pdf_operators(pdf), re.S)
+    text = " ".join(re.sub(r"\\([0-7]{1,3}|.)", unescape, run, flags=re.S)
+                    for run in runs)
+    return " ".join(text.split())
+
+
+@pytest.fixture
+def stand_in_model():
+    """The model's reply from a stand-in, never the network: the worked
+    example's saved commentary and token counts, whatever the period."""
+    example = load_example()
+    reply = SimpleNamespace(
+        content=[SimpleNamespace(text=example["commentary"])],
+        usage=SimpleNamespace(input_tokens=example["input_tokens"],
+                              output_tokens=example["output_tokens"]),
+        stop_reason="end_turn")
+    with patch.object(Messages, "create", return_value=reply) as create:
+        yield create
+
+
+@pytest.fixture
+def downloads(monkeypatch):
+    """Reads the file behind a download button: while the test runs, every
+    file the page hands to one is kept by its media id."""
+    from streamlit.runtime.memory_media_file_storage import MemoryMediaFileStorage
+    files = {}
+    load = MemoryMediaFileStorage.load_and_get_id
+
+    def _load(self, data, mimetype, kind, filename=None):
+        file_id = load(self, data, mimetype, kind, filename)
+        files[file_id] = self.get_file(file_id).content
+        return file_id
+
+    monkeypatch.setattr(MemoryMediaFileStorage, "load_and_get_id", _load)
+
+    def read(at, label):
+        (button,) = [d for d in at.get("download_button") if d.proto.label == label]
+        return files[button.proto.url.rsplit("/", 1)[-1].split(".")[0]]
+    return read
+
+
+def _live_page():
+    """The tool page with the stand-in key typed in, before any Generate."""
+    at = _app_with_key_on_home()
+    at.switch_page("views/variance_commentary.py").run()
+    assert not at.exception
+    return at
+
+
+@pytest.fixture
+def generated(stand_in_model):
+    """The tool page after Generate commentary for March, the stand-in replying."""
+    at = _click_generate(_live_page())
+    assert not at.exception and at.session_state["vc_result"]
+    return at
+
+
+def _signoff_section(at):
+    """The Sign-off section's markdown on "Run it yourself", from its heading to
+    the session audit (whose rows start in bold)."""
+    values = [m.value for m in at.tabs[1].markdown]
+    section = values[values.index("#### Sign-off"):]
+    end = next((i for i, v in enumerate(section) if v.startswith("**")), len(section))
+    return section[:end]
+
+
+def _numbered(markdown):
+    """The lines of a numbered markdown list, without their numbers."""
+    lines = markdown.splitlines()
+    assert [line.split(". ", 1)[0] for line in lines] == [
+        str(i) for i in range(1, len(lines) + 1)]
+    return [line.split(". ", 1)[1] for line in lines]
+
+
+def _refusals(at):
+    return [w.value for w in at.tabs[1].warning if w.value != _REVIEW_WARNING]
+
+
+def _boxes(at):
+    return [(t.key, t.value) for t in at.text_input if t.key in ("vc_reviewer", "vc_sign")]
+
+
+def _signoff_buttons(at):
+    return [b for b in at.button if b.key == "vc_signoff"]
+
+
+def _labels(node):
+    return [d.proto.label for d in node.get("download_button")]
+
+
+def _session_audit(at):
+    """The Session audit expander on "Run it yourself"."""
+    (audit,) = [e for e in at.tabs[1].expander if e.label.startswith("Session audit")]
+    return audit
+
+
+def _sign(at, name="José Núñez", word="SIGN"):
+    at.text_input(key="vc_reviewer").input(name).run()
+    at.text_input(key="vc_sign").input(word).run()
+    at.button(key="vc_signoff").click().run()
+    assert not at.exception
+
+
+class TestStep5bSignOff:
+    """The Sign-off section: the rule in src/signoff.py, drawn as in Project 6."""
+
+    def test_5b_no_section_before_a_result(self):
+        at = _live_page()
+        assert "#### Sign-off" not in [m.value for m in at.markdown]
+        assert not _boxes(at) and not _signoff_buttons(at)
+        # The worked example keeps its own download and has no section to sign.
+        assert _labels(at) == ["Download PDF"]
+        assert not [m for m in at.tabs[0].markdown if "Sign-off" in m.value]
+
+    def test_5b_from_run_to_final(self, downloads, generated):
+        at = generated
+        live = at.tabs[1]
+        result = at.session_state["vc_result"]
+        # After the live result, at the level of its sibling sections (####)
+        assert [m.value for m in live.markdown if m.value.startswith("#### ")] == [
+            "#### Choose a period", "#### Review status", "#### Variance table",
+            "#### 12-month trend", "#### Commentary", "#### Sign-off"]
+        section = _signoff_section(at)
+        assert section == ["#### Sign-off", _SENTENCE, _DRAFT_CHIP,
+                           "Outstanding before you sign:", section[4]]
+        assert _numbered(section[4]) == result["flags"] == _MARCH_FLAGS
+        assert [(t.label, t.help) for t in live.text_input
+                if t.key in ("vc_reviewer", "vc_sign")] == [
+            ("Reviewer name", ""), (WORD_LABEL, WORD_HELP)]
+        (button,) = _signoff_buttons(at)
+        assert button.label == "Sign off" and button.proto.type == "primary"
+        assert not button.disabled
+        captions = [c.value for c in live.caption]
+        assert captions.count(SCOPE_NOTE) == 1 and STALE_CAPTION not in captions
+        # The live download is the DRAFT PDF; the example keeps "Download PDF".
+        assert _labels(live) == ["Download the DRAFT PDF"]
+        assert _labels(at.tabs[0]) == ["Download PDF"]
+        draft = _pdf_text(downloads(at, "Download the DRAFT PDF"))
+        assert draft.index("DRAFT: not signed off") < draft.index("EXECUTIVE SUMMARY")
+
+        # Refused: no name, a wrong word, the word in lower case. Each stays DRAFT.
+        for name, word, refusal in [("   ", "SIGN", NAME_REFUSAL),
+                                    ("José Núñez", "SIGNED", WORD_REFUSAL),
+                                    ("José Núñez", "sign", WORD_REFUSAL)]:
+            _sign(at, name, word)
+            assert _refusals(at) == [refusal]
+            assert _signoff_section(at)[2] == _DRAFT_CHIP
+            assert "vc_signed_off" not in at.session_state
+            assert "status" not in at.session_state["vc_audit"][0]
+
+        # Signed: FINAL, the signed line, read only, the FINAL PDF
+        _sign(at, "José Núñez", " SIGN ")
+        signed = at.session_state["vc_signed_off"]
+        when = when_text(signed.signed_at)
+        line = "Signed off by José Núñez on {}.".format(when)
+        assert _signoff_section(at) == [
+            "#### Sign-off", _SENTENCE, "{}&nbsp; {}".format(_FINAL_CHIP, line)]
+        assert not _refusals(at)
+        assert not _boxes(at) and not _signoff_buttons(at)
+        assert [c.value for c in at.tabs[1].caption].count(SCOPE_NOTE) == 1
+        assert _labels(at.tabs[1]) == ["Download the FINAL PDF"]
+        final = _pdf_text(downloads(at, "Download the FINAL PDF"))
+        status = "FINAL: signed off by José Núñez on {}".format(when)
+        assert final.index(status) < final.index("EXECUTIVE SUMMARY")
+        assert "DRAFT: not signed off" not in final
+
+        # The run's session audit row carries the sign-off and the flags shown,
+        # and the Session audit list shows it on that row.
+        (row,) = at.session_state["vc_audit"]
+        assert (row["generated_at"], row["input_hash"]) == (
+            result["generated_at"], result["input_hash"])
+        assert {k: row[k] for k in ("status", "signed_off_by", "signed_off_at",
+                                    "acknowledged_at_sign_off")} == {
+            "status": "final", "signed_off_by": "José Núñez",
+            "signed_off_at": signed.signed_at.isoformat(),
+            "acknowledged_at_sign_off": _MARCH_FLAGS}
+        audit = _session_audit(at)
+        assert "{}&nbsp; {} Flags acknowledged at sign-off: 4.".format(
+            _FINAL_CHIP, line) in [m.value for m in audit.markdown]
+
+    def test_5b_a_second_signoff_is_refused(self, generated):
+        at = generated
+        _sign(at)
+        first = at.session_state["vc_signed_off"]
+        # The page offers no second Sign off.
+        assert not _signoff_buttons(at) and not _boxes(at)
+        # And the rule refuses one: a click that lands while a sign-off for the
+        # result on screen already stands.
+        _click_generate(at)
+        at.text_input(key="vc_sign").input("SIGN").run()
+        at.session_state["vc_signed_off"] = first
+        at.button(key="vc_signoff").click().run()
+        assert not at.exception
+        assert _refusals(at) == [ALREADY_SIGNED]
+        assert at.session_state["vc_signed_off"] is first
+        assert [row.get("status") for row in at.session_state["vc_audit"]] == [None, "final"]
+
+    def test_5b_a_new_run_is_a_new_draft(self, downloads, generated):
+        at = generated
+        _sign(at, "A. Reviewer")
+        first_run = at.session_state["vc_result"]["generated_at"]
+        # Generate again on the same inputs: a new result, a new DRAFT
+        _click_generate(at)
+        assert not at.exception
+        assert at.session_state["vc_result"]["generated_at"] != first_run
+        section = _signoff_section(at)
+        assert section[2] == _DRAFT_CHIP and _numbered(section[4]) == _MARCH_FLAGS
+        # The name stays filled in; SIGN must be typed again.
+        assert _boxes(at) == [("vc_reviewer", "A. Reviewer"), ("vc_sign", "")]
+        assert "vc_signed_off" not in at.session_state
+        assert _labels(at.tabs[1]) == ["Download the DRAFT PDF"]
+        assert "DRAFT: not signed off" in _pdf_text(downloads(at, "Download the DRAFT PDF"))
+        # The sign-off stays on the run it was made for, and the new run signs
+        # on its own row.
+        rows = at.session_state["vc_audit"]
+        assert [(r["generated_at"], r.get("status")) for r in rows] == [
+            (at.session_state["vc_result"]["generated_at"], None), (first_run, "final")]
+        at.text_input(key="vc_sign").input("SIGN").run()
+        at.button(key="vc_signoff").click().run()
+        assert [r.get("status") for r in at.session_state["vc_audit"]] == ["final", "final"]
+
+    def test_5b_sign_typed_for_one_result_does_not_carry_to_the_next(self, generated):
+        at = generated
+        at.text_input(key="vc_reviewer").input("A. Reviewer").run()
+        at.text_input(key="vc_sign").input("SIGN").run()
+        _click_generate(at)                     # a new result before the click
+        assert _boxes(at) == [("vc_reviewer", "A. Reviewer"), ("vc_sign", "")]
+        at.button(key="vc_signoff").click().run()
+        assert _refusals(at) == [WORD_REFUSAL]
+
+    def test_5b_inputs_changed_since_the_run_wait_for_a_new_run(self, generated):
+        at = generated
+
+        def button_and_caption():
+            (button,) = _signoff_buttons(at)
+            return button.disabled, STALE_CAPTION in [c.value for c in at.tabs[1].caption]
+
+        # A new period on screen, Generate not pressed: the result is stale.
+        at.selectbox(key="vc_period").set_value("April 2026").run()
+        assert button_and_caption() == (True, True)
+        assert _numbered(_signoff_section(at)[4]) == _MARCH_FLAGS   # still March's
+        at.selectbox(key="vc_period").set_value("March 2026").run()
+        assert button_and_caption() == (False, False)
+        # A review threshold changed on screen, and changed back
+        at.number_input(key="vc_thr_Revenue").set_value(20.0).run()
+        assert button_and_caption() == (True, True)
+        at.number_input(key="vc_thr_Revenue").set_value(10.0).run()
+        assert button_and_caption() == (False, False)
+
+        # Signed, then the period changed: the signed result is still the one
+        # on screen, so it stays FINAL; the next Generate is a new DRAFT.
+        _sign(at, "A. Reviewer")
+        at.selectbox(key="vc_period").set_value("April 2026").run()
+        assert _signoff_section(at)[2].startswith(_FINAL_CHIP)
+        assert STALE_CAPTION not in [c.value for c in at.tabs[1].caption]
+        _click_generate(at)
+        assert at.session_state["vc_result"]["period"] == "April 2026"
+        assert _signoff_section(at)[2:4] == [_DRAFT_CHIP, "Nothing is outstanding."]
+        assert button_and_caption() == (False, False)
+        assert _boxes(at) == [("vc_reviewer", "A. Reviewer"), ("vc_sign", "")]
+
+    def test_5b_a_new_key_alone_changes_nothing(self, generated):
+        # The key is not an input of the result: a new key on its own neither
+        # makes it stale nor undoes a sign-off. Only a new Generate does.
+        at = generated
+        other_key = "sk-ant-api03-" + "y" * 90
+        at.sidebar.text_input(key="byo_api_key").input(other_key).run()
+        (button,) = _signoff_buttons(at)
+        assert not button.disabled and _signoff_section(at)[2] == _DRAFT_CHIP
+        _sign(at)
+        at.sidebar.text_input(key="byo_api_key").input(TEST_KEY).run()
+        assert _signoff_section(at)[2].startswith(_FINAL_CHIP)
+        at.sidebar.text_input(key="byo_api_key").input("").run()
+        assert _signoff_section(at)[2].startswith(_FINAL_CHIP)
+        assert "vc_signed_off" in at.session_state
+
+    def test_5b_nothing_outstanding(self, stand_in_model):
+        at = _live_page()
+        at.selectbox(key="vc_period").set_value("January 2026").run()
+        _click_generate(at)
+        assert _signoff_section(at) == [
+            "#### Sign-off", _SENTENCE, _DRAFT_CHIP, "Nothing is outstanding."]
+        _sign(at)
+        assert at.session_state["vc_audit"][0]["acknowledged_at_sign_off"] == []
+        audit = _session_audit(at)
+        assert any(m.value.endswith("Flags acknowledged at sign-off: 0.")
+                   for m in audit.markdown)
+
+    def test_5b_names_print_safely(self, downloads, generated):
+        at = generated
+        typed = "Zoë 李 <b>R&D</b>\x07" + "x" * 100
+        _sign(at, typed)
+        signed = at.session_state["vc_signed_off"]
+        assert signed.name == clean_name(typed) and len(signed.name) == NAME_LIMIT
+        assert signed.name.startswith("Zoë 李 <b>R&D</b>xxx")
+        # On screen as typed, escaped; in the PDF as its fonts print it, never as markup
+        assert _signoff_section(at)[2] == "{}&nbsp; {}".format(
+            _FINAL_CHIP, html.escape(signed.line))
+        final = "".join(_pdf_text(downloads(at, "Download the FINAL PDF")).split())
+        status = "FINAL: signed off by {} on {}".format(
+            pdf_name(signed.name), when_text(signed.signed_at))
+        assert status.startswith("FINAL: signed off by Zoë ? <b>R&D</b>xxx")
+        assert "".join(status.split()) in final
+
+    def test_5b_worked_example_and_cli_pdfs_have_no_status_line(
+            self, downloads, tmp_dirs, mock_commentary, loaded_pipeline):
+        # The worked example's PDF is built as before: no keyword, no status line.
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        at.switch_page("views/variance_commentary.py").run()
+        shown = _pdf_text(downloads(at, "Download PDF"))
+        ex = load_example()
+        args = (ex["commentary"], ex["df"], ex["flags"], ex["input_tokens"],
+                ex["output_tokens"], ex["period"], ex["entity"], ex["generated_at"])
+        kwargs = dict(policy_note_text=policy_note(ex["policy"]),
+                      df_12mo=load_pnl(DOCS_DIR.parent / "data" / "sample_pnl.csv"))
+        assert shown == _pdf_text(build_pdf_bytes(*args, **kwargs))
+        assert "DRAFT:" not in shown and "FINAL:" not in shown
+        # The status line is the only thing the keyword adds, under the cover.
+        with_line = _pdf_text(build_pdf_bytes(*args, **kwargs,
+                                              status_line="DRAFT: not signed off"))
+        assert with_line.replace(" DRAFT: not signed off", "", 1) == shown
+        assert with_line.index("DRAFT: not signed off") < with_line.index(
+            "EXECUTIVE SUMMARY")
+        # The CLI's PDF (write_pdf) carries no status line either.
+        df, flags = loaded_pipeline
+        cli = _pdf_text(write_pdf(mock_commentary, df, flags, 895, 1114).read_bytes())
+        assert "DRAFT:" not in cli and "FINAL:" not in cli
+
+    def test_5b_wording(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        values = [m.value for m in at.main.markdown]
+        what = values[values.index("#### What it does") + 1]
+        promise = values[values.index("#### The governance promise") + 1]
+        assert what.splitlines()[-1] == (
+            "- Produces a PDF of the figures, the flags and the commentary, a DRAFT "
+            "until a named reviewer signs it.")
+        assert promise.splitlines()[-1] == (
+            "- **The reviewer signs.** Nothing is final until a named reviewer reads "
+            "it and signs.")
+        at.switch_page("views/how_its_built.py").run()
+        assert any("This live demo stops at a typed sign-off kept for the session; it "
+                   "does not store or lock anything" in m.value for m in at.markdown)
+        stale = ["stops at flagging for review", "no sign-off step", "nobody approves",
+                 "nothing here is signed or final", "A person reviews",
+                 "before the accounts can be signed off"]
+        root = APP_DIR.parent
+        for path in [root / "README.md", *APP_DIR.rglob("*.py"), *(root / "src").glob("*.py")]:
+            text = path.read_text(encoding="utf-8")
+            assert not [s for s in stale if s in text], path.name
