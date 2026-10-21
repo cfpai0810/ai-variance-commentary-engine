@@ -9,9 +9,9 @@
 # called ONLY when Generate is clicked, never on a passive rerun: the result is
 # stored in session state and rendered from there.
 #
-# Two tabs, one renderer: "Run it yourself" (live, needs a key) and "View a
-# worked example" (a saved real March run, no key). Both call _render_result, so
-# the example looks exactly like a live run.
+# Two tabs, one renderer: "View a worked example" (a saved real March run, no
+# key), first and open on arrival, and "Run it yourself" (live, needs a key).
+# Both call _render_result, so the example looks exactly like a live run.
 # =============================================================================
 
 import sys
@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from streamlit_app.lib.theme import (
-    inject_css, DARK_BLUE, MID_BLUE, LIGHT_BLUE, RULE, NEAR_WHITE,
+    inject_css, header_html, DARK_BLUE, MID_BLUE, LIGHT_BLUE, RULE, NEAR_WHITE,
     AMBER, AMBER_BG, FLAG_RED, MUTED, BODY_DARK,
 )
 from streamlit_app.lib.key_gate import render_key_gate
@@ -55,14 +55,11 @@ from matplotlib import pyplot as plt
 st.markdown(inject_css(), unsafe_allow_html=True)
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown(
-    '<div class="sc-header">'
-    '<h1>Variance Commentary</h1>'
-    '<p>Generate the management-accounts commentary for a period. Python '
-    'computes every variance; the model writes the narrative; you review it.</p>'
-    '</div>',
-    unsafe_allow_html=True,
-)
+st.markdown(header_html(
+    "Variance commentary",
+    "Generate the management-accounts commentary for a period. Python "
+    "computes every variance; the model writes the narrative; you review it."),
+    unsafe_allow_html=True)
 
 # ── Key gate (sidebar): returns a per-session client or None ──────────────────
 client = render_key_gate()
@@ -373,13 +370,11 @@ def _render_result(res, key_prefix):
 
 
 # =============================================================================
-# Tabs: live run, and the keyless worked example
+# Tabs: the keyless worked example, then the live run
 # =============================================================================
-# Home's "See the worked example" button opens this page on the example tab.
-_open_example = st.session_state.pop("vc_open_example", False)
-tab_live, tab_example = st.tabs(
-    ["Run it yourself", "View a worked example"],
-    default="View a worked example" if _open_example else None)
+# The example is first, so it is the tab every visitor lands on, from Home's
+# "See the worked example" button or from the sidebar alike.
+tab_example, tab_live = st.tabs(["View a worked example", "Run it yourself"])
 
 with tab_live:
     # ── Scope controls ────────────────────────────────────────────────────────

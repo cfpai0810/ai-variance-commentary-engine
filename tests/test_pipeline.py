@@ -1321,7 +1321,7 @@ class TestUx:
         assert [b.label for b in at.main.button] == ["See the worked example"]
         at.main.button[0].click().run()
         assert not at.exception
-        assert [t.label for t in at.tabs] == ["Run it yourself", "View a worked example"]
+        assert [t.label for t in at.tabs] == ["View a worked example", "Run it yourself"]
         assert any("saved example run for March 2026" in i.value for i in at.info)
 
     def test_ux4_tabular_figures_only_where_numbers_line_up(self):
@@ -1361,7 +1361,8 @@ class TestPortableHash:
 
 
 # =============================================================================
-# STEP 3: Home's button opens the worked example tab (UX2)
+# STEP 3: Home's button opens the worked example tab (UX2). Since Step 5a the
+# example is simply the first tab, so no flag or default= is needed.
 # =============================================================================
 
 def _tab_sets(node):
@@ -1380,22 +1381,23 @@ class TestUx2ExampleTab:
         at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
         next(b for b in at.main.button if b.label == "See the worked example").click().run()
         assert not at.exception
-        assert [t.label for t in at.tabs] == ["Run it yourself", "View a worked example"]
+        assert [t.label for t in at.tabs] == ["View a worked example", "Run it yourself"]
         tab_sets = _tab_sets(at.main)
         assert len(tab_sets) == 1
-        assert tab_sets[0].proto.tab_container.default_tab_index == 1
-        assert "vc_open_example" not in at.session_state     # a one-off flag
+        assert tab_sets[0].proto.tab_container.default_tab_index == 0
+        assert "vc_open_example" not in at.session_state     # no flag at all
 
     def test_ux2_sidebar_link_still_opens_the_first_tab(self):
+        # The sidebar link and Home's button land on the same first tab, the
+        # example, before and after the button has been used.
         at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
         at.switch_page("views/variance_commentary.py").run()
         assert not at.exception
+        assert [t.label for t in at.tabs] == ["View a worked example", "Run it yourself"]
         assert _tab_sets(at.main)[0].proto.tab_container.default_tab_index == 0
-        # After the button has been used once, the sidebar link still opens the
-        # first tab: the flag does not outlive the visit it was set for.
         at.switch_page("Home.py").run()
         next(b for b in at.main.button if b.label == "See the worked example").click().run()
-        assert _tab_sets(at.main)[0].proto.tab_container.default_tab_index == 1
+        assert _tab_sets(at.main)[0].proto.tab_container.default_tab_index == 0
         at.switch_page("Home.py").run()
         at.switch_page("views/variance_commentary.py").run()
         assert _tab_sets(at.main)[0].proto.tab_container.default_tab_index == 0
@@ -1449,3 +1451,112 @@ class TestDependencies:
         text = (Path(__file__).resolve().parent.parent / "requirements.txt").read_text(
             encoding="utf-8-sig")
         assert "certifi==2026.10.19" in text.split()
+
+
+# =============================================================================
+# STEP 5a: the series look (V1 to V5 and the page icon), the same tests in
+# every project
+# =============================================================================
+
+import html
+import tomllib
+
+import streamlit
+from streamlit_app.lib import theme
+from streamlit_app.lib.theme import header_html, status_chip_html
+
+APP_DIR = APP_HOME.parent
+
+# Every page's address as published before Step 5a (the README, posts), in the
+# navigation order. A title may change; an address may not.
+PAGE_URLS = ["", "how_it_works", "variance_commentary", "your_own_data", "how_its_built"]
+
+# Every page as (the file AppTest opens, its title, the name in its banner).
+PAGES = [
+    ("Home.py", "Home", "Variance Commentary"),
+    ("views/how_it_works.py", "How it works", "How it works"),
+    ("views/variance_commentary.py", "Variance commentary", "Variance commentary"),
+    ("views/your_own_data.py", "Your own data", "Your own data"),
+    ("views/how_its_built.py", "How it's built", "How it's built"),
+]
+
+
+def _navigation():
+    """One run of Home: the pages it hands to st.navigation and the arguments
+    of its st.set_page_config call."""
+    with patch.object(streamlit, "navigation", wraps=streamlit.navigation) as nav, \
+            patch.object(streamlit, "set_page_config",
+                         wraps=streamlit.set_page_config) as page_config:
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+    assert not at.exception
+    return nav.call_args.args[0], page_config.call_args.kwargs
+
+
+class TestStep5aLook:
+
+    def test_v1_primary_colour_is_the_navy(self):
+        config = tomllib.loads(
+            (APP_DIR.parent / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
+        assert config["theme"]["primaryColor"] == theme.DARK_BLUE == "#1A3A5C"
+        assert config["client"]["toolbarMode"] == "minimal"
+
+    def test_v2_every_page_has_a_banner(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        for page_file, _, banner_name in PAGES:
+            at.switch_page(page_file).run()
+            assert not at.exception, page_file
+            banners = [m.value for m in at.main.markdown if 'class="sc-header"' in m.value]
+            assert len(banners) == 1, page_file
+            assert banners[0].startswith(
+                '<div class="sc-header"><h1>{}</h1><p>'.format(html.escape(banner_name)))
+        assert header_html("A & B", "<one line>") == (
+            '<div class="sc-header"><h1>A &amp; B</h1><p>&lt;one line&gt;</p></div>')
+
+    def test_v2_draft_and_final_chips(self):
+        assert status_chip_html("final") == '<span class="sc-status final">FINAL</span>'
+        for status in ("draft", "DRAFT", "FINAL", "", None):
+            assert status_chip_html(status) == '<span class="sc-status draft">DRAFT</span>'
+        css = inject_css()
+        assert ".sc-status.draft { background: #B45F06; }" in css
+        assert ".sc-status.final { background: #2E6B3F; }" in css
+        assert "sc-badge" not in css and not hasattr(theme, "badge_html")
+
+    def test_v3_home_blocks_and_page_links(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        headings = [m.value for m in at.main.markdown if m.value.startswith("#")]
+        assert headings == ["#### What it does", "#### The governance promise", "#### Pages"]
+        links = [link.proto for link in at.main.get("page_link")]
+        assert [link.page for link in links] == PAGE_URLS[1:]
+        assert [link.label.split(": ")[0] for link in links] == [p[1] for p in PAGES[1:]]
+        # The key explainer stays, closed, with its cost; the sample company is
+        # the one closing caption; no green "loaded" box.
+        (explainer,) = at.main.expander
+        assert explainer.label == "Using your own API key" and not explainer.proto.expanded
+        assert "about 1.9 US cents" in explainer.markdown[0].value
+        assert [c.value for c in at.main.caption] == [
+            "Sample data only: Valencia Operations is a fictional company, with twelve "
+            "months of profit and loss data across seven lines. All figures are "
+            "illustrative."]
+        assert not at.main.success
+
+    def test_v4_titles_are_sentence_case_and_urls_unchanged(self):
+        pages, _ = _navigation()
+        assert [page.url_path for page in pages] == PAGE_URLS
+        assert [page.title for page in pages] == [p[1] for p in PAGES]
+        for page in pages:
+            assert page.title[1:] == page.title[1:].lower(), page.title
+
+    def test_v5_example_tab_first_and_no_open_example_flag(self):
+        at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+        at.switch_page("views/variance_commentary.py").run()
+        assert not at.exception
+        assert [t.label for t in at.tabs] == ["View a worked example", "Run it yourself"]
+        (tab_set,) = _tab_sets(at.main)
+        assert tab_set.proto.tab_container.default_tab_index == 0
+        for source in APP_DIR.rglob("*.py"):
+            assert "_open_example" not in source.read_text(encoding="utf-8"), source.name
+
+    def test_v5_page_icon_is_the_tool_page_icon(self):
+        pages, page_config = _navigation()
+        tool_page = next(page for page in pages if page.url_path == "variance_commentary")
+        assert page_config["page_icon"] == tool_page.icon == ":material/bar_chart:"

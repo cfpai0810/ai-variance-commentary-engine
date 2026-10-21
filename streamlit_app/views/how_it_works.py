@@ -15,11 +15,15 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.lib.theme import inject_css
+from streamlit_app.lib.theme import header_html, inject_css
 
 st.markdown(inject_css(), unsafe_allow_html=True)
 
-st.markdown("### How it works")
+st.markdown(header_html(
+    "How it works",
+    "The pipeline, what gets flagged, the review thresholds and the record of "
+    "every run."),
+    unsafe_allow_html=True)
 st.write(
     "The tool runs a fixed pipeline for the period you choose. It loads the "
     "data, scopes it to that month, computes the variances in Python, flags "

@@ -20,14 +20,18 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.lib.theme import inject_css
+from streamlit_app.lib.theme import header_html, inject_css
 from streamlit_app.lib.governance_flow import governance_flow_svg
 from streamlit_app.lib.governance_lifecycle import governance_lifecycle_svg
 from streamlit_app.lib.pipeline_flow import pipeline_flow_svg
 
 st.markdown(inject_css(), unsafe_allow_html=True)
 
-st.markdown("### How it's built")
+st.markdown(header_html(
+    "How it's built",
+    "Why the numbers can be trusted, then the pipeline, the AI boundary and "
+    "the tests."),
+    unsafe_allow_html=True)
 st.write(
     "This tool was built on one idea: an AI system that touches financial numbers "
     "has to earn trust before it earns time. The sections below explain how that "

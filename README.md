@@ -99,7 +99,7 @@ docs/
 
 output/                       Generated files (gitignored)
 tests/
-  test_pipeline.py            153 tests, no API calls
+  test_pipeline.py            160 tests, no API calls
 ```
 
 ---
@@ -196,8 +196,9 @@ The steps above run on the synthetic sample. To run on your own figures:
   pip install -r requirements.txt
   streamlit run streamlit_app/Home.py
   ```
-  Open the Variance Commentary page, pick a period, and generate. Paste your
-  Anthropic key in the sidebar, or set `ANTHROPIC_API_KEY`.
+  Open the Variance commentary page and its Run it yourself tab, pick a period,
+  and generate. Paste your Anthropic key in the sidebar, or set
+  `ANTHROPIC_API_KEY`.
 - **Or run the CLI** with `python main.py`; it uses `DEFAULT_PERIOD` from
   `config.py`. If your data does not contain that month, change it, or the run
   stops with an error listing the periods your file has.
@@ -295,7 +296,7 @@ produce the same hash, so a record can be checked by hashing the rows again.
 
 ## Test suite
 
-153 tests. No real API calls:
+160 tests. No real API calls:
 
 ```bash
 pip install -r requirements-dev.txt

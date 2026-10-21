@@ -16,11 +16,14 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.lib.theme import inject_css
+from streamlit_app.lib.theme import header_html, inject_css
 
 st.markdown(inject_css(), unsafe_allow_html=True)
 
-st.markdown("### Running on your own data")
+st.markdown(header_html(
+    "Your own data",
+    "The CSV format, where your file goes, and how to run the tool locally."),
+    unsafe_allow_html=True)
 st.write(
     "The public web app runs on synthetic sample data only. To generate "
     "commentary on your own figures, download this project and run it locally "
@@ -81,10 +84,10 @@ st.write("**The web app, locally.** From the project root:")
 st.code("pip install -r requirements.txt\nstreamlit run streamlit_app/Home.py",
         language="bash")
 st.write(
-    "Open the Variance Commentary page. The period picker lists the months found "
-    "in your file; pick one and generate the commentary. This is the most "
-    "forgiving route, because the picker adapts to whatever months your data "
-    "contains.")
+    "Open the Variance commentary page and its Run it yourself tab. The period "
+    "picker lists the months found in your file; pick one and generate the "
+    "commentary. This is the most forgiving route, because the picker adapts "
+    "to whatever months your data contains.")
 st.write("**The command-line tool.**")
 st.code("python main.py", language="bash")
 st.write(

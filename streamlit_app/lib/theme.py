@@ -2,8 +2,8 @@
 # lib/theme.py : one visual identity, shared with the PDF
 # =============================================================================
 # The exact palette the PDFs already use (step6_explainer), so the web app and
-# the report it produces read as a single product. Governance status colours
-# do real work here as badges: green approved, amber caution, red refused.
+# the report it produces read as a single product. Status is shown by two
+# chips, amber DRAFT and green FINAL; every page banner is the navy band.
 #
 # Typography: Source Serif 4 for headings (institutional authority) and Inter
 # for body, UI, and data (screen-first, with tabular figures so numbers align
@@ -23,14 +23,10 @@ MUTED      = "#898781"
 RULE       = "#D3D1C7"
 NEAR_WHITE = "#FBFAF7"
 
-# Status badge colours (background, text) — the governance state made visible
-BADGE = {
-    "draft":    (LIGHT_BLUE, DARK_BLUE),
-    "approved": ("#E1F5EE",  GREEN),
-    "locked":   ("#E6F1FB",  MID_BLUE),
-    "refused":  ("#F7E4E4",  FLAG_RED),
-    "caution":  (AMBER_BG,   AMBER),
-}
+# Status chips: amber DRAFT and green FINAL, the series' sign-off colours (as
+# Project 6's screen and PDF use them)
+DRAFT_CHIP = "#B45F06"
+FINAL_CHIP = "#2E6B3F"
 
 # Font families (referenced in CSS and available to the SVG diagram)
 SERIF = "'Source Serif 4', Georgia, 'Times New Roman', serif"
@@ -84,15 +80,22 @@ def inject_css():
         color: #AACCEE; margin: 6px 0 0; font-size: 0.92rem; font-weight: 400;
       }}
 
-      /* Status badge */
-      .sc-badge {{
+      /* Status chip: amber DRAFT, green FINAL */
+      .sc-status {{
         display: inline-block;
-        padding: 2px 10px;
-        border-radius: 20px;
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        font-family: {SANS};
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: white;
+      }}
+      .sc-status.draft {{ background: {DRAFT_CHIP}; }}
+      .sc-status.final {{ background: {FINAL_CHIP}; }}
+
+      /* Page links wrap rather than clip on a phone */
+      [data-testid="stPageLink-NavLink"], [data-testid="stPageLink-NavLink"] * {{
+        white-space: normal !important; height: auto !important;
       }}
 
       /* Honest key-disclosure note */
@@ -108,10 +111,14 @@ def inject_css():
     """
 
 
-def badge_html(status):
-    """Return an HTML status badge for one of the governance states."""
-    status = status.lower()
-    bg, fg = BADGE.get(status, BADGE["draft"])
-    label = status.upper()
-    return (f'<span class="sc-badge" style="background:{bg};color:{fg};">'
-            f'{label}</span>')
+def header_html(title, subtitle):
+    """The page banner: the series navy band with the page's name and one line."""
+    import html
+    return (f'<div class="sc-header"><h1>{html.escape(title)}</h1>'
+            f'<p>{html.escape(subtitle)}</p></div>')
+
+
+def status_chip_html(status):
+    """The DRAFT or FINAL chip. Anything but "final" reads DRAFT."""
+    label = "FINAL" if status == "final" else "DRAFT"
+    return f'<span class="sc-status {label.lower()}">{label}</span>'
