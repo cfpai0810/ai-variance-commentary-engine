@@ -109,8 +109,8 @@ docs/
 
 output/                       Generated files (gitignored)
 tests/
-  test_pipeline.py            171 tests, no API calls
-  test_signoff.py             8 tests: the sign-off rule
+  test_pipeline.py            172 tests, no API calls
+  test_signoff.py             9 tests: the sign-off rule
 ```
 
 ---
@@ -307,7 +307,7 @@ produce the same hash, so a record can be checked by hashing the rows again.
 
 ## Test suite
 
-179 tests. No real API calls:
+181 tests. No real API calls:
 
 ```bash
 pip install -r requirements-dev.txt

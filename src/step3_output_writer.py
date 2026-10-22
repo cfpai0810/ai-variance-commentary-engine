@@ -404,7 +404,7 @@ def _flag_summary_table(flags):
 
     ACTIONS = {
         "ZERO_ACTUAL":    "Confirm whether spend was deferred, miscoded, or not incurred. Investigate before period close.",
-        "MISSING_ACTUAL": "Submit actual figure immediately. Report cannot be signed off with missing data.",
+        "MISSING_ACTUAL": "Submit the actual figure immediately. Sign-off should wait for it.",
         "LARGE_VARIANCE": "Provide written explanation to CFO before Board submission. Confirm whether full-year budget requires restatement.",
         "ZERO_BUDGET":    "Confirm cost centre is correctly set up. Verify whether expenditure was anticipated.",
         "MISSING_BUDGET": "Confirm budget allocation. Variance cannot be calculated without a budget figure.",

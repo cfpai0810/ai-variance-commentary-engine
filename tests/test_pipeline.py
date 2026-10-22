@@ -1234,6 +1234,17 @@ class TestPdfText:
         assert "Spend <b rose & stayed < plan." in ops
         assert "R&D Expense" in ops and "R&D;" not in ops
 
+    def test_5b_missing_actual_advises_and_claims_no_block(self, loaded_pipeline):
+        # Flags never block the sign-off, so the PDF's action for a missing
+        # actual is advice, not a block the app does not have (5b fix round).
+        df, _ = loaded_pipeline
+        pdf = build_pdf_bytes(
+            "EXECUTIVE SUMMARY\nMargin held.", df, ["MISSING_ACTUAL: Admin"], 1, 1,
+            "March 2026", "Valencia Operations", "2026-03-31T00:00:00+00:00")
+        ops = _pdf_operators(pdf).replace(") Tj (", "")
+        assert "Submit the actual figure immediately. Sign-off should wait for it." in ops
+        assert "cannot be signed off" not in ops
+
     def test_item35_pdf_failure_leaves_a_plain_message(self):
         with patch("src.step3_output_writer.build_pdf_bytes",
                    side_effect=RuntimeError("boom")):
@@ -1329,6 +1340,9 @@ class TestUx:
         global_rule = css[css.index("html, body"):]
         global_rule = global_rule[:global_rule.index("}")]
         assert "tnum" not in global_rule and '"cv05" 1' in global_rule
+        # Lists, bold, italics and captions in Inter too, as Project 6's
+        # theme sets them (5b fix round)
+        assert "th, ul, ol, li, strong, em, caption {" in global_rule
         numeric = css[css.index("Tabular figures only where numbers line up"):]
         selectors, body = numeric.split("{", 1)
         assert "table, table *" in selectors
