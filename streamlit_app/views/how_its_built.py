@@ -14,16 +14,15 @@ import sys
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from streamlit_app.lib.theme import header_html, inject_css
-from streamlit_app.lib.governance_flow import governance_flow_svg
-from streamlit_app.lib.governance_lifecycle import governance_lifecycle_svg
-from streamlit_app.lib.pipeline_flow import pipeline_flow_svg
+from streamlit_app.lib.governance_flow import governance_flow_html
+from streamlit_app.lib.governance_lifecycle import governance_lifecycle_html
+from streamlit_app.lib.pipeline_flow import pipeline_flow_html
 
 st.markdown(inject_css(), unsafe_allow_html=True)
 
@@ -51,7 +50,7 @@ st.write(
     "compute it, and the same input always produces the same output.")
 
 st.markdown("**The work happens in separated layers.**")
-components.html(governance_flow_svg(), height=300, scrolling=False)
+st.markdown(governance_flow_html(), unsafe_allow_html=True)
 st.write(
     "You pick a period; Python scopes the data to that month, computes every "
     "variance, and checks each line against its review threshold; the model reads "
@@ -84,7 +83,7 @@ st.info(
     "deterministic and checkable.")
 
 st.markdown("#### The governance lifecycle")
-components.html(governance_lifecycle_svg(), height=310, scrolling=False)
+st.markdown(governance_lifecycle_html(), unsafe_allow_html=True)
 st.write(
     "In a production deployment, review is the start of the record, not "
     "the end. Once a reviewer approves the commentary, the approved version "
@@ -106,7 +105,7 @@ st.write(
     "and strict.")
 
 st.markdown("**The pipeline.**")
-components.html(pipeline_flow_svg(), height=260, scrolling=False)
+st.markdown(pipeline_flow_html(), unsafe_allow_html=True)
 st.write(
     "Each stage has one job. The loader reads the profit-and-loss data and scopes "
     "it to the chosen period. The validator checks every line for the five "

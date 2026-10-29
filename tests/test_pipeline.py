@@ -1956,3 +1956,184 @@ class TestStep5bSignOff:
         for path in [root / "README.md", *APP_DIR.rglob("*.py"), *(root / "src").glob("*.py")]:
             text = path.read_text(encoding="utf-8")
             assert not [s for s in stale if s in text], path.name
+
+
+# =============================================================================
+# STEP 6c: the How it's built diagrams, readable on a phone
+# =============================================================================
+# The three diagrams were SVG in fixed-height frames, so on a phone their text
+# shrank to about 4 px and a blank gap followed. They are now HTML lists drawn
+# by lib/flow_diagram.py: a row of boxes from 640 px, stacked below that. These
+# tests read the page as AppTest renders it and check each diagram's words, its
+# accessible name (the old SVG's aria-label) and the order of its stages.
+
+from html.parser import HTMLParser
+
+GOVERNANCE_FLOW = {
+    "label": "How a run is governed: you pick a period, Python computes every "
+             "variance and checks each line against its threshold, the model reads "
+             "the figures and writes the commentary, Python marks any run that needs "
+             "a human, and you review what is flagged. Every run is written to the "
+             "audit record with a hash of the input data.",
+    "head": "You open and close every run. The model works only in between.",
+    "stages": [
+        ("YOU PICK A PERIOD", "A month to report on", "the person"),
+        ("PYTHON COMPUTES", "Every variance, checks thresholds", "no model here"),
+        ("THE MODEL WRITES", "Reads the figures, writes commentary", "words, not numbers"),
+        ("MARKED FOR REVIEW", "Python flags what needs a human", "no model here"),
+        ("YOU REVIEW", "You check the flagged lines", "the person"),
+    ],
+    "note": "Every run is written to the audit record, with a hash of the input "
+            "data, so it can be traced and reproduced.",
+    "key": ["You", "The model, for language", "Deterministic code, for numbers"],
+}
+LIFECYCLE = {
+    "label": "The governance lifecycle: you review the flagged output, approve the "
+             "report, the approved version is locked and becomes immutable, everyone "
+             "reads the locked record, and a change requires a new separately "
+             "approved version.",
+    "head": "Review is the start of the record, not the end.",
+    "stages": [
+        ("YOU REVIEW", "Check the flagged output and data", "the person"),
+        ("YOU APPROVE", "Sign off the report as final", "the person"),
+        ("LOCKED", "The approved report becomes immutable", "the record"),
+        ("READ ONLY", "Everyone reads it, no one edits it", "the record"),
+        ("RE-ISSUE", "A new version; the original still stands", "the person"),
+    ],
+    "note": "The live demo stops at a typed sign-off. The stages beyond show the "
+            "production model this design is built towards.",
+    "key": ["You", "The immutable record"],
+}
+PIPELINE = {
+    "label": "The pipeline: a deterministic loader reads the profit-and-loss data and "
+             "scopes it to the chosen period; a deterministic validator checks every "
+             "line for the five flag conditions and applies the per-line thresholds; "
+             "a deterministic calculator computes the variances and leaves flagged "
+             "lines uncomputed; the model reads the computed figures and writes the "
+             "commentary; and a deterministic output layer writes the PDF, the data "
+             "hash, and the audit record. Only the commentary stage uses the model; "
+             "everything numeric is deterministic.",
+    "head": "The model appears in one stage only. Everything numeric is deterministic.",
+    "stages": [
+        ("Load", "read P&L, scope to month", "deterministic"),
+        ("Validate", "five checks, thresholds", "deterministic"),
+        ("Compute", "variances, skip flagged", "deterministic"),
+        ("Commentary", "figures to words", "model, language"),
+        ("Output", "PDF, hash, audit record", "deterministic"),
+    ],
+    "note": "The commentary stage is handed already-final figures; the model has "
+            "nothing to calculate with.",
+    "key": ["Model, for language", "Deterministic code, for numbers"],
+}
+
+
+class _Diagram(HTMLParser):
+    """One flow diagram's HTML read back: the list's accessible name, the
+    heading, the note, the colour key, and each stage's parts by class."""
+
+    def __init__(self, markup):
+        super().__init__()
+        self.label, self.head, self.note, self.key, self.stages = None, None, None, [], []
+        self._open = []
+        self.feed(markup)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = (attrs.get("class") or "").split()
+        if tag == "ol" and "fd-flow" in classes:
+            self.label = attrs.get("aria-label")
+        if tag == "li" and "fd-stage" in classes:
+            self.stages.append({"cross": "fd-cross" in classes})
+        self._open.append(classes)
+
+    def handle_endtag(self, tag):
+        self._open.pop()
+
+    def handle_data(self, data):
+        words, classes = data.strip(), self._open[-1] if self._open else []
+        if not words:
+            return
+        if ["fd-key"] in self._open:
+            self.key.append(words)
+        elif "fd-head" in classes:
+            self.head = words
+        elif "fd-note" in classes:
+            self.note = words
+        elif classes and classes[0] in ("fd-zone", "fd-title", "fd-text", "fd-foot"):
+            self.stages[-1][classes[0]] = words
+
+
+@pytest.fixture(scope="class")
+def how_its_built():
+    """The How it's built page as AppTest renders it, and its flow diagrams read
+    back in page order, each with its place among the page's markdown."""
+    at = AppTest.from_file(str(APP_HOME), default_timeout=120).run()
+    at.switch_page("views/how_its_built.py").run()
+    assert not at.exception
+    flows = [(i, _Diagram(m.value)) for i, m in enumerate(at.main.markdown)
+             if m.value.startswith('<figure class="fd">')]
+    return at, flows
+
+
+def _check_flow(flow, expected):
+    """A diagram has the expected words, and its stages in the expected order."""
+    assert flow.label == expected["label"]
+    assert flow.head == expected["head"]
+    assert [(s["fd-title"], s["fd-text"], s["fd-foot"]) for s in flow.stages] == \
+        expected["stages"]
+    assert flow.note == expected["note"]
+    assert flow.key == expected["key"]
+
+
+class TestStep6cDiagrams:
+
+    def test_6c_diagrams_are_html_lists_not_frames(self, how_its_built):
+        at, flows = how_its_built
+        assert not at.get("iframe"), "no fixed-height frame left on the page"
+        assert len(flows) == 3, "the three diagrams are HTML lists on the page"
+        # Each sits where its frame was: just under its lead-in, in page order
+        values = [m.value for m in at.main.markdown]
+        leads = ["**The work happens in separated layers.**",
+                 "#### The governance lifecycle", "**The pipeline.**"]
+        assert [i for i, _ in flows] == [values.index(lead) + 1 for lead in leads]
+        # The CSS is in inject_css: stacked on a phone, a row from 640 px, and
+        # no text in a diagram under 13 px
+        from streamlit_app.lib import flow_diagram
+        flow_css = flow_diagram.flow_css(theme.DARK_BLUE, theme.MUTED, theme.RULE)
+        assert flow_css in inject_css()
+        assert "@media (min-width: 640px)" in flow_css and "ol.fd-flow" in flow_css
+        sizes = [int(s) for s in re.findall(r"font-size: (\d+)px", flow_css)]
+        assert sizes and min(sizes) >= 13
+        # The renderer imports nothing from an app, so it copies byte for byte
+        source = Path(flow_diagram.__file__).read_text(encoding="utf-8")
+        assert "import streamlit_app" not in source and "from streamlit_app" not in source
+
+    def test_6c_governance_flow_stages_in_order(self, how_its_built):
+        _, flows = how_its_built
+        assert len(flows) == 3, "the three diagrams are HTML lists on the page"
+        flow = flows[0][1]
+        _check_flow(flow, GOVERNANCE_FLOW)
+        assert not any(s["cross"] for s in flow.stages)
+
+    def test_6c_lifecycle_stages_in_order_with_the_demo_boundary(self, how_its_built):
+        _, flows = how_its_built
+        assert len(flows) == 3, "the three diagrams are HTML lists on the page"
+        flow = flows[1][1]
+        _check_flow(flow, LIFECYCLE)
+        titles = [s["fd-title"] for s in flow.stages]
+        assert "YOU APPROVE" in titles and "LOCKED" in titles
+        # The live demo ends after YOU REVIEW: the boundary sits just before YOU
+        # APPROVE, with a label for the zone on each side
+        assert [s["cross"] for s in flow.stages] == [False, True, False, False, False]
+        assert [(s.get("fd-zone"), s["fd-title"]) for s in flow.stages[:2]] == [
+            ("Live demo", "YOU REVIEW"), ("Production workflow", "YOU APPROVE")]
+        assert all("fd-zone" not in s for s in flow.stages[2:])
+
+    def test_6c_pipeline_stages_in_order(self, how_its_built):
+        _, flows = how_its_built
+        assert len(flows) == 3, "the three diagrams are HTML lists on the page"
+        flow = flows[2][1]
+        _check_flow(flow, PIPELINE)
+        # The model appears in exactly one stage
+        assert [s["fd-foot"] for s in flow.stages].count("model, language") == 1
+        assert not any(s["cross"] for s in flow.stages)
