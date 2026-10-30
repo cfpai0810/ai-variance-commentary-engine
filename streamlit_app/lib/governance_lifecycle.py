@@ -29,7 +29,8 @@ STAGES = (
           PERSON),
 )
 
-# The live demo stops after review; the stages from approval on are production
+# The live demo stops at a typed sign-off; the stages from approval on are
+# production
 BOUNDARY = Boundary(1, "Live demo", "Production workflow")
 
 

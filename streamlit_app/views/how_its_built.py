@@ -79,8 +79,8 @@ st.write(
 st.info(
     "In one line: the model reads the figures and writes the commentary; Python "
     "computes every variance and flags what needs a human; you review what is "
-    "flagged. The intelligence is at the edges, and the numbers in the middle are "
-    "deterministic and checkable.")
+    "flagged, then sign off. The intelligence is at the edges, and the numbers "
+    "in the middle are deterministic and checkable.")
 
 st.markdown("#### The governance lifecycle")
 st.markdown(governance_lifecycle_html(), unsafe_allow_html=True)

@@ -2137,3 +2137,17 @@ class TestStep6cDiagrams:
         # The model appears in exactly one stage
         assert [s["fd-foot"] for s in flow.stages].count("model, language") == 1
         assert not any(s["cross"] for s in flow.stages)
+
+
+class TestStep6Wording:
+
+    def test_6_the_prose_under_the_flow_ends_at_the_sign_off(self, how_its_built):
+        # The In one line note describes the governance flow, which ends at YOU
+        # SIGN OFF: the prose now says the same
+        at, _ = how_its_built
+        (line,) = [i.value for i in at.info if i.value.startswith("In one line:")]
+        assert line == (
+            "In one line: the model reads the figures and writes the commentary; "
+            "Python computes every variance and flags what needs a human; you "
+            "review what is flagged, then sign off. The intelligence is at the "
+            "edges, and the numbers in the middle are deterministic and checkable.")
