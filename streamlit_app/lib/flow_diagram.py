@@ -15,6 +15,20 @@
 # stroke, the box in the fill). An optional boundary between two stages marks
 # where one zone ends and the next begins, with a label for each zone, in both
 # layouts. The list's accessible name says what the diagram shows.
+#
+# Four further kinds of diagram, each asked for by an optional field or
+# argument whose default draws exactly what was drawn before; their CSS rules
+# are added after the rules above, under class names of their own:
+# - words on an arrow (Stage.arrow): above the arrow in a row, beside it when
+#   stacked, with a wider gap between the boxes of a row to hold them;
+# - a path back (flow_html(back=...)): a dashed path from the last stage back
+#   to the first, with its words, under a row or down the side of a stack;
+# - layers (flow_html(layers=True)): the stages one above another at every
+#   width, text to the left, with no arrows;
+# - a larger row minimum (flow_html(row_min=...)), for a diagram whose words
+#   need more room than ROW_MIN gives them: stacked, as on a phone, until the
+#   diagram has that width; from there a row in which no box is narrower than
+#   its longest word. The values on offer are ROW_MINS, so the CSS is fixed.
 # =============================================================================
 
 from dataclasses import dataclass
@@ -23,6 +37,8 @@ from urllib.parse import quote
 
 BREAKPOINT = 640      # px of window width: a row from here up, stacked below
 ROW_MIN = 600         # px the diagram itself needs for a row of boxes
+ROW_MINS = (660, 680)   # px: the larger row minimums a diagram may ask for
+ARROW_GAP = 64        # px between two boxes of a row with words on the arrows
 
 
 @dataclass(frozen=True)
@@ -36,11 +52,13 @@ class Role:
 @dataclass(frozen=True)
 class Stage:
     """One box: a title, a line of text, and a foot that says who owns the
-    stage. An empty text or foot is left out."""
+    stage. An empty text or foot is left out. `arrow` is the words on the
+    arrow into the stage, if any: a few short words, as they sit on one line."""
     title: str
     text: str
     foot: str
     role: Role
+    arrow: str = ""
 
 
 @dataclass(frozen=True)
@@ -57,14 +75,41 @@ def _span(cls, words, colour=""):
     return f'<span class="{cls}"{style}>{escape(words)}</span>'
 
 
-def flow_html(label, stages, *, heading="", note="", key=(), boundary=None):
+def _whole(words):
+    """Words for a line that may wrap, each hyphenated word kept on one line."""
+    return " ".join(f'<span class="fd-nobr">{escape(word)}</span>' if "-" in word
+                    else escape(word) for word in words.split(" "))
+
+
+def flow_html(label, stages, *, heading="", note="", key=(), boundary=None,
+              back="", layers=False, row_min=None):
     """The diagram as one line of HTML, for st.markdown(unsafe_allow_html=True).
 
     `label` is the accessible name of the list of stages; `heading` is the line
     above the boxes and `note` the line below them; `key` is the colour key, as
-    (role, words) pairs; `boundary` is an optional Boundary."""
+    (role, words) pairs; `boundary` is an optional Boundary.
+
+    The optional kinds: `back` is the words on a dashed path from the last
+    stage back to the first; `layers` draws the stages as layers, one above
+    another with no arrows; `row_min`, one of ROW_MINS, keeps the stages
+    stacked until the diagram has that many px, and lets no box of the row be
+    narrower than its longest word. Words on the arrows and a path back are
+    drawn in a flow with no boundary and no larger row minimum; layers take
+    none of the other kinds."""
     if boundary is not None and not 0 < boundary.index < len(stages):
         raise ValueError("a boundary sits between two stages")
+    if row_min is not None and (type(row_min) is not int or row_min not in ROW_MINS):
+        raise ValueError(f"a larger row minimum is one of {ROW_MINS} px")
+    worded = any(stage.arrow for stage in stages)
+    if stages and stages[0].arrow:
+        raise ValueError("words on an arrow need a stage before it")
+    if back and len(stages) < 2:
+        raise ValueError("a path back runs from the last stage to the first")
+    if layers and (worded or back or row_min is not None or boundary is not None):
+        raise ValueError("layers have no arrows, path back, boundary or row")
+    if (worded or back) and (boundary is not None or row_min is not None):
+        raise ValueError("words on the arrows and a path back are drawn in a "
+                         "flow with no boundary and no larger row minimum")
     items = []
     for i, stage in enumerate(stages):
         cls, parts = "fd-stage", []
@@ -73,6 +118,10 @@ def flow_html(label, stages, *, heading="", note="", key=(), boundary=None):
         if boundary is not None and i == boundary.index:
             cls = "fd-stage fd-cross"
             parts.append(_span("fd-zone", boundary.after))
+        if layers:
+            cls = "fd-layer"
+        if stage.arrow:
+            parts.append(_span("fd-arrow", stage.arrow))
         parts.append(_span("fd-title", stage.title, stage.role.stroke))
         if stage.text:
             parts.append(_span("fd-text", stage.text))
@@ -81,11 +130,17 @@ def flow_html(label, stages, *, heading="", note="", key=(), boundary=None):
         style = f"border-color:{stage.role.stroke};background:{stage.role.fill}"
         items.append(f'<li class="{cls}" style="{style}">{" ".join(parts)}</li>')
     zoned = " fd-zoned" if boundary is not None else ""
+    kinds = "".join(name for name, on in ((" fd-worded", worded), (" fd-loop", back),
+                                          (f" fd-row{row_min}", row_min)) if on)
+    ol = "fd-layers" if layers else f"fd-flow{zoned}{kinds}"
     out = ['<figure class="fd">']
     if heading:
         out.append(f'<p class="fd-head">{escape(heading)}</p>')
-    out.append(f'<ol class="fd-flow{zoned}" aria-label="{escape(label)}">'
+    out.append(f'<ol class="{ol}" aria-label="{escape(label)}">'
                f'{"".join(items)}</ol>')
+    if back:
+        out.append(f'<p class="fd-return" style="--fd-n:{len(stages)}">'
+                   f'{_whole(back)}</p>')
     if note:
         out.append(f'<p class="fd-note">{escape(note)}</p>')
     if key:
@@ -98,9 +153,12 @@ def flow_html(label, stages, *, heading="", note="", key=(), boundary=None):
     return "".join(out)
 
 
-def _chevron(colour, down):
-    """An arrow head as a CSS image, pointing right or down."""
+def _chevron(colour, down, up=False):
+    """An arrow head as a CSS image, pointing right or down (or, with `up`,
+    up)."""
     box, path = ("0 0 10 8", "M1 1L5 7L9 1") if down else ("0 0 8 10", "M1 1L7 5L1 9")
+    if up:
+        box, path = "0 0 10 8", "M1 7L5 1L9 7"
     svg = (f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='{box}'>"
            f"<path d='{path}' fill='none' stroke='{colour}' stroke-width='1.6' "
            f"stroke-linecap='round' stroke-linejoin='round'/></svg>")
@@ -109,9 +167,13 @@ def _chevron(colour, down):
 
 def flow_css(ink, muted, rule):
     """The CSS for flow_html, for the app's inject_css(). `ink` is the text
-    colour, `muted` the arrows and the quiet lines, `rule` the dashed lines."""
+    colour, `muted` the arrows and the quiet lines, `rule` the dashed lines.
+    The rules for the optional kinds come after the first block, so that block
+    stays as it was, rule for rule."""
     line = f"linear-gradient({muted}, {muted})"
     down, right = _chevron(muted, True), _chevron(muted, False)
+    up = _chevron(muted, False, up=True)
+    larger = "".join(_row_min_css(width, down, line, rule) for width in ROW_MINS)
     return f"""
       /* Flow diagrams (lib/flow_diagram.py): one box under another on a
          phone, a row of boxes from {BREAKPOINT} px */
@@ -188,5 +250,109 @@ def flow_css(ink, muted, rule):
         }}
         .fd .fd-title {{ font-size: 13px; letter-spacing: 0.02em; }}
         .fd .fd-text {{ font-size: 14px; }}
+      }} }}
+
+      /* Flow diagrams, the optional kinds, each under class names of its own:
+         words on the arrows (fd-worded, fd-arrow), a path back from the last
+         stage to the first (fd-loop, fd-return, fd-nobr), layers with no
+         arrows (fd-layers, fd-layer), and a larger row minimum (fd-row660
+         and the like, one for each width in ROW_MINS) */
+      .fd ol.fd-flow .fd-arrow {{
+        position: absolute; left: calc(50% + 12px); bottom: 100%; height: 30px;
+        margin-bottom: 1px; display: flex; align-items: center;
+        font-size: 13px; line-height: 1.3; color: {muted}; white-space: nowrap;
+      }}
+      .fd ol.fd-flow.fd-loop {{ position: relative; padding-left: 26px; }}
+      .fd ol.fd-flow.fd-loop::before {{
+        content: ""; position: absolute; left: 8px; top: 20px; bottom: 0;
+        width: 18px; border: 0 dashed {muted}; border-width: 1.2px 0 0 1.2px;
+      }}
+      .fd ol.fd-flow.fd-loop::after {{
+        content: ""; position: absolute; left: 18px; top: 15.6px;
+        width: 8px; height: 10px; background: {right} center / 8px 10px no-repeat;
+      }}
+      .fd p.fd-return {{
+        position: relative; margin: 0 0 0 8px; padding: 30px 0 0 12px;
+        text-align: left; font-size: 13px; line-height: 1.4; color: {muted};
+      }}
+      .fd p.fd-return::after {{
+        content: ""; position: absolute; left: 0; top: 0;
+        width: calc(50% + 9.6px); height: 20px;
+        border: 0 dashed {muted}; border-width: 0 1.2px 1.2px;
+      }}
+      .fd .fd-nobr {{ white-space: nowrap; }}
+      .fd ol.fd-layers {{
+        list-style: none; margin: 0; padding: 0;
+        display: flex; flex-direction: column; gap: 8px;
+      }}
+      .fd ol.fd-layers > li.fd-layer {{
+        display: flex; flex-direction: column; min-width: 0;
+        margin: 0; padding: 10px 14px; border: 1px solid; border-radius: 12px;
+        text-align: left; color: {ink}; line-height: 1.35;
+        overflow-wrap: break-word;
+      }}
+      .fd ol.fd-layers .fd-title {{ font-size: 14px; letter-spacing: 0.03em; }}
+      .fd ol.fd-layers .fd-text {{ font-size: 15px; }}
+      @media (min-width: {BREAKPOINT}px) {{ @container fd (min-width: {ROW_MIN}px) {{
+        .fd ol.fd-flow.fd-worded > li.fd-stage + li.fd-stage {{
+          margin: 0 0 0 {ARROW_GAP}px;
+        }}
+        .fd ol.fd-flow.fd-worded > li.fd-stage + li.fd-stage::before {{
+          width: {ARROW_GAP}px;
+        }}
+        .fd ol.fd-flow .fd-arrow {{
+          left: auto; right: 100%; bottom: 50%; width: {ARROW_GAP}px; height: auto;
+          margin: 0 1px 6px 0; justify-content: center;
+        }}
+        .fd ol.fd-flow.fd-loop {{ padding-left: 0; }}
+        .fd ol.fd-flow.fd-loop::before, .fd ol.fd-flow.fd-loop::after {{
+          content: none;
+        }}
+        .fd p.fd-return {{
+          margin: 0 calc((100% - (var(--fd-n) - 1) * 22px) / var(--fd-n) / 2 - 0.6px);
+          padding: 8px 12px 6px; text-align: center;
+          border: 0 dashed {muted}; border-width: 0 1.2px 1.2px;
+        }}
+        .fd ol.fd-flow.fd-worded + p.fd-return {{
+          margin: 0 calc((100% - (var(--fd-n) - 1) * {ARROW_GAP}px) / var(--fd-n) / 2
+                         - 0.6px);
+        }}
+        .fd p.fd-return::after {{ content: none; }}
+        .fd p.fd-return::before {{
+          content: ""; position: absolute; left: -5.6px; top: 0;
+          width: 10px; height: 8px; background: {up} center / 10px 8px no-repeat;
+        }}
+      }} }}
+{larger}"""
+
+
+def _row_min_css(width, down, line, rule):
+    """The rules for a diagram that asks for a row minimum of `width` px: from
+    ROW_MIN px up to `width`, the rules of a stack, as on a phone, put back
+    over those of the row (a boundary included); from `width`, a row in which
+    no box is narrower than its longest word."""
+    flow = f".fd ol.fd-flow.fd-row{width}"
+    return f"""      @media (min-width: {BREAKPOINT}px) {{
+        @container fd (min-width: {ROW_MIN}px) and (width < {width}px) {{
+        {flow} {{ flex-direction: column; }}
+        {flow} > li.fd-stage {{ flex: 0 1 auto; padding: 10px 12px; }}
+        {flow} > li.fd-stage + li.fd-stage {{ margin: 30px 0 0; }}
+        {flow} > li.fd-stage + li.fd-stage::before {{
+          left: 50%; right: auto; bottom: 100%; top: auto;
+          width: 10px; height: 31px; margin: 0 0 0 -5px;
+          background: {down} center bottom 2px / 10px 8px no-repeat,
+                      {line} center top / 1.6px calc(100% - 4px) no-repeat;
+        }}
+        {flow} > li.fd-stage + li.fd-cross {{ margin-top: 58px; }}
+        {flow} > li.fd-stage + li.fd-cross::before {{ height: 59px; }}
+        {flow} > li.fd-cross::after {{
+          left: -1px; right: -1px; top: -36px; bottom: auto;
+          border-top: 1.2px dashed {rule}; border-left: 0;
+        }}
+        {flow} .fd-title {{ font-size: 14px; letter-spacing: 0.03em; }}
+        {flow} .fd-text {{ font-size: 15px; }}
+      }} }}
+      @media (min-width: {BREAKPOINT}px) {{ @container fd (min-width: {width}px) {{
+        {flow} > li.fd-stage {{ min-width: auto; }}
       }} }}
 """
