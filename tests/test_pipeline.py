@@ -2151,3 +2151,102 @@ class TestStep6Wording:
             "Python computes every variance and flags what needs a human; you "
             "review what is flagged, then sign off. The intelligence is at the "
             "edges, and the numbers in the middle are deterministic and checkable.")
+
+
+# =============================================================================
+# STEP 7c: a missing or rejected key on the command line
+# =============================================================================
+# call_claude raises a RuntimeError when there is no key or the API rejects the
+# key. main.py used to let it end in a traceback; it now prints the message as
+# one [ERROR] line and exits with status 1. These tests run main.py as its own
+# process with both key variables set: load_dotenv never overrides a variable
+# that is already set, so no test can reach the real API, even beside a .env.
+
+import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+NO_KEY_MESSAGE = ("No Anthropic client available. On the CLI, set ANTHROPIC_API_KEY "
+                  "in your .env; on the web, paste your API key first.")
+REJECTED_KEY_MESSAGE = ("Authentication failed. Check that your ANTHROPIC_API_KEY "
+                        "is set correctly in your .env file and starts with sk-ant-.")
+REJECTED_KEY_BODY = json.dumps({"type": "error", "error": {
+    "type": "authentication_error", "message": "invalid x-api-key"}}).encode("utf-8")
+
+
+class _RejectEveryKey(BaseHTTPRequestHandler):
+    """A local stand-in for the API: POST /v1/messages answers 401, and each
+    request is noted with the key it carried."""
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        path = self.path.split("?")[0]
+        self.server.seen.append((path, self.headers.get("x-api-key")))
+        self.send_response(401 if path == "/v1/messages" else 404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(REJECTED_KEY_BODY)))
+        self.end_headers()
+        self.wfile.write(REJECTED_KEY_BODY)
+
+    def log_message(self, *args):
+        pass    # keep the test output quiet
+
+
+@pytest.fixture
+def api_rejecting_every_key():
+    """The stand-in API on 127.0.0.1, and the requests it saw. Stopped after
+    the test."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _RejectEveryKey)
+    server.seen = []
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield "http://127.0.0.1:{}".format(server.server_address[1]), server.seen
+    server.shutdown()
+    server.server_close()
+    thread.join()
+
+
+def _output_files():
+    """Every file under output/, with its size and modified time."""
+    return {str(p): (p.stat().st_size, p.stat().st_mtime_ns)
+            for p in (PROJECT_ROOT / "output").rglob("*") if p.is_file()}
+
+
+def _run_main(api_key, base_url):
+    """python main.py from the project root, with both key variables set."""
+    env = dict(os.environ, ANTHROPIC_API_KEY=api_key, ANTHROPIC_BASE_URL=base_url,
+               PYTHONIOENCODING="utf-8")
+    return subprocess.run([sys.executable, "main.py"], cwd=PROJECT_ROOT, env=env,
+                          capture_output=True, encoding="utf-8", errors="replace",
+                          timeout=300)
+
+
+def _check_one_error_line(run, message):
+    """One [ERROR] line with the engine's message, no traceback, status 1."""
+    lines = run.stdout.splitlines() + run.stderr.splitlines()
+    assert [line for line in lines if line.startswith("[ERROR]")] == \
+        ["[ERROR] " + message], run.stdout + run.stderr
+    assert "Traceback" not in run.stdout + run.stderr
+    assert run.returncode == 1
+
+
+class TestStep7cCommandLineKey:
+
+    def test_7c_missing_key_prints_one_error_line_and_exits_1(
+            self, api_rejecting_every_key):
+        base_url, seen = api_rejecting_every_key
+        before = _output_files()
+        run = _run_main("", base_url)
+        _check_one_error_line(run, NO_KEY_MESSAGE)
+        assert seen == [], "no key, so no model call is made"
+        assert _output_files() == before, "a failed run writes nothing to output/"
+
+    def test_7c_rejected_key_prints_one_error_line_and_exits_1(
+            self, api_rejecting_every_key):
+        base_url, seen = api_rejecting_every_key
+        before = _output_files()
+        run = _run_main(TEST_KEY, base_url)
+        _check_one_error_line(run, REJECTED_KEY_MESSAGE)
+        assert seen == [("/v1/messages", TEST_KEY)], "the stand-in rejected the key"
+        assert _output_files() == before, "a failed run writes nothing to output/"

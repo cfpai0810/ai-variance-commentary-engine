@@ -33,7 +33,13 @@ if __name__ == "__main__":
 
     # Layer 3 - AI Engine
     system_p, user_p = build_prompt(df, flags, DEFAULT_PERIOD, DEFAULT_ENTITY)
-    commentary, tok_in, tok_out, stop_reason = call_claude(system_p, user_p)
+    # A missing or rejected key, or any failed call, ends in one [ERROR] line and
+    # exit status 1, not a traceback. The message is joined onto one line.
+    try:
+        commentary, tok_in, tok_out, stop_reason = call_claude(system_p, user_p)
+    except RuntimeError as exc:
+        print("\n[ERROR] {}".format(" ".join(str(exc).split())))
+        raise SystemExit(1)
 
     # Layer 4 - Output
     # COUPLING: validate_and_flag(df) above used the config policy (thresholds=None),
