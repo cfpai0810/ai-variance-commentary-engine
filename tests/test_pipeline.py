@@ -1973,15 +1973,15 @@ GOVERNANCE_FLOW = {
     "label": "How a run is governed: you pick a period, Python computes every "
              "variance and checks each line against its threshold, the model reads "
              "the figures and writes the commentary, Python marks any run that needs "
-             "a human, and you review what is flagged. Every run is written to the "
-             "audit record with a hash of the input data.",
+             "a human, and you review what is flagged, then sign off. Every run is "
+             "written to the audit record with a hash of the input data.",
     "head": "You open and close every run. The model works only in between.",
     "stages": [
         ("YOU PICK A PERIOD", "A month to report on", "the person"),
         ("PYTHON COMPUTES", "Every variance, checks thresholds", "no model here"),
         ("THE MODEL WRITES", "Reads the figures, writes commentary", "words, not numbers"),
         ("MARKED FOR REVIEW", "Python flags what needs a human", "no model here"),
-        ("YOU REVIEW", "You check the flagged lines", "the person"),
+        ("YOU SIGN OFF", "You check the flagged lines, then sign off", "the person"),
     ],
     "note": "Every run is written to the audit record, with a hash of the input "
             "data, so it can be traced and reproduced.",
